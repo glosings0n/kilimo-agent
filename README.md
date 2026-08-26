@@ -18,7 +18,7 @@ flowchart TD
     end
 
     subgraph Orchestration ["Core Reasoning Engine"]
-        AGENT["Gemini 3.6 Flash Orchestrator\n• Dialect transcription (Swahili / French)\n• Computer vision grading\n• Tool invocation & routing"]
+        AGENT["Gemini 3.6 Flash Orchestrator\n• Dialect transcription (Swahili / French / English)\n• Computer vision grading\n• Tool invocation & routing"]
     end
 
     subgraph Execution ["Tools & Persistence"]
