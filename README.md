@@ -1,4 +1,4 @@
-# KilimoAgent — Multimodal Agricultural Arbitrage & Logistics Dispatch Agent
+# KilimoAgent: Multimodal Agricultural Arbitrage & Logistics Dispatch Agent
 
 KilimoAgent is an autonomous agent system engineered to eliminate intermediaries and optimize supply chain economics for smallholder agricultural cooperatives. The platform processes raw field media (voice notes and harvest photography), assesses crop quality, evaluates real-time market arbitrage across regional trade hubs, and books freight logistics directly with carriers without requiring manual intervention.
 
@@ -112,7 +112,7 @@ $$\text{Net Revenue} = (\text{Batch Volume} \times \text{Spot Price}) - \text{Fr
 Clone the repository and prepare the virtual environment:
 
 ```bash
-git clone [https://github.com/](https://github.com/)<your-username>/kilimo-agent.git
+git clone https://github.com/glosings0n/kilimo-agent.git
 cd kilimo-agent/backend
 
 python3 -m venv venv
