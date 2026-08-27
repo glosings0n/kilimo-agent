@@ -115,40 +115,65 @@ flowchart TD
 ```text
 .
 ├── backend/
-│   ├── assets/                      # Sample voice notes (.mp4) and harvest images (.jpg)
+│   ├── assets/                          # Sample voice notes (.mp4) and harvest images (.jpg)
 │   ├── guardrails/
-│   │   └── gemma_guard.py           # Gemma 2 Multilingual Model Armor & PII Redactor
+│   │   └── gemma_guard.py               # Gemma 2 Multilingual Model Armor & PII Redactor
 │   ├── routers/
-│   │   └── whatsapp.py              # Twilio WhatsApp webhook, dispatcher & simulator
+│   │   ├── __init__.py
+│   │   └── whatsapp.py                  # Twilio WhatsApp webhook, dispatcher & multi-turn simulator
 │   ├── schemas/
-│   │   └── dispatch_schema.py       # Pydantic v2 Executive Dispatch models
+│   │   ├── __init__.py
+│   │   └── dispatch_schema.py           # Pydantic v2 Executive Dispatch models
 │   ├── state/
-│   │   └── firestore_manager.py     # Cloud Firestore state machine & memory bank
+│   │   └── firestore_manager.py         # Cloud Firestore state machine & immutable ledger
 │   ├── tools/
-│   │   └── market_and_logistics.py  # Corridor Market Radar, Routing & Waybill tools
-│   ├── agent.py                     # Google ADK Agent ('kilimo_dispatch_agent') & Runner
-│   ├── main.py                      # FastAPI enterprise orchestrator service
-│   ├── requirements.txt             # Python dependencies (google-adk, twilio, etc.)
-│   └── test_guardrail_and_whatsapp.py # Automated test suite (15/15 tests passing)
+│   │   ├── market_and_logistics.py      # Corridor Market Radar, Routing & Waybill tools
+│   │   └── multimodal_grading.py        # Gemini Vision crop validation & audio speech verification
+│   ├── Dockerfile                       # Production backend container definition
+│   ├── agent.py                         # Google ADK Agent ('kilimo_dispatch_agent') & Runner
+│   ├── main.py                          # FastAPI enterprise orchestrator & multimodal API service
+│   ├── receptionist_agent.py            # Conversational Receptionist Agent & GenUI triager
+│   ├── requirements.txt                 # Python dependencies (google-adk, twilio, etc.)
+│   ├── test_defensive_robustness.py     # Defensive validation test suite
+│   └── test_guardrail_and_whatsapp.py   # Automated unit & integration test suite (19/19 passing)
 │
 └── frontend/
+    ├── public/
+    │   ├── icons/                       # Vector SVGs (Gemini, WhatsApp, GitHub, etc.)
+    │   └── logo.png
     ├── src/
     │   ├── components/
-    │   │   ├── GeospatialRouteMap.jsx   # Interactive Dark Leaflet Corridor Map
-    │   │   ├── HarvestCardStack.jsx     # 5-Step Guided Card Stack UX
-    │   │   ├── MultimodalInputCapsule.jsx # Rapid prompt capsule with audio/photo
-    │   │   ├── WhatsAppSimulatorModal.jsx # Interactive Twilio WhatsApp simulator
-    │   │   ├── GeminiLiveModal.jsx      # Multimodal Live streaming camera/voice modal
-    │   │   ├── ArbitrageChart.jsx       # Multi-market comparative financial breakdown
-    │   │   ├── WaybillCard.jsx          # Cryptographic bill of lading card
-    │   │   └── ArchitectureModal.jsx    # 5-Layer engineering architecture explorer
+    │   │   ├── ArbitrageChart.jsx           # Multi-market comparative financial breakdown
+    │   │   ├── ArchitectureModal.jsx        # 5-Layer engineering architecture explorer
+    │   │   ├── AudioRecorder.jsx            # Voice recording component
+    │   │   ├── CameraCapture.jsx            # Live camera capture component
+    │   │   ├── Flags.jsx                    # Crisp vector SVG country flags (DRC, Kenya, Rwanda, Tanzania, Uganda)
+    │   │   ├── GeminiIcon.jsx               # Native Gemini vector icon
+    │   │   ├── GeminiLiveModal.jsx          # Multimodal Live streaming camera/voice modal
+    │   │   ├── GenUIWidgets.jsx             # Generative UI widgets (Depot map picker, Crop cards, Volume lot)
+    │   │   ├── GeospatialRouteMap.jsx       # Interactive Dark Leaflet Corridor Map
+    │   │   ├── HarvestCardStack.jsx         # 5-Step Guided Card Stack UX with Custom Crop Dialog
+    │   │   ├── HeroBanner.jsx               # Landing hero banner
+    │   │   ├── LedgerView.jsx               # Execution ledger & audit trail
+    │   │   ├── MultimodalInputCapsule.jsx   # Conversational prompt capsule with instant language adaptation
+    │   │   ├── MultimodalInsights.jsx       # Quality grade & vision insights display
+    │   │   ├── Navbar.jsx                   # Top navigation bar
+    │   │   ├── PipelineStepper.jsx          # Real-time execution stepper
+    │   │   ├── PresetSelector.jsx           # Judge quick preset scenarios
+    │   │   ├── ResponseShimmerSkeleton.jsx  # Loading shimmer feedback
+    │   │   ├── Sidebar.jsx                  # Collapsible navigation drawer
+    │   │   ├── WaybillCard.jsx              # Cryptographic bill of lading card
+    │   │   └── WhatsAppSimulatorModal.jsx   # Interactive Twilio WhatsApp simulator modal
     │   ├── utils/
-    │   │   ├── audioSynthesizer.js      # TTS multi-language speech engine
-    │   │   ├── parser.js                # Structured JSON & ledger extractor
-    │   │   ├── presets.js               # 1-Click judge test scenarios
-    │   │   └── translations.js          # Full Swahili, French, English dictionaries
-    │   ├── App.jsx                      # Root interactive dashboard
+    │   │   ├── audioSynthesizer.js          # TTS multi-language speech engine
+    │   │   ├── parser.js                    # Structured JSON & ledger extractor
+    │   │   ├── presets.js                   # 1-Click judge test scenarios
+    │   │   └── translations.js              # Complete Swahili, French, English dictionaries
+    │   ├── App.jsx                          # Root interactive dashboard
+    │   ├── index.css                        # Solid flat dark styles (zero glow, zero gradient)
     │   └── main.jsx
+    ├── Dockerfile                           # Production Nginx multi-stage build container
+    ├── nginx.conf                           # Production Cloud Run SPA Nginx configuration
     ├── package.json
     └── vite.config.js
 ```
@@ -160,6 +185,7 @@ flowchart TD
 ### 1. Prerequisites
 
 * Python 3.12 or higher
+* Node.js 20 or higher
 * Active Google Cloud Project with Cloud Run and Firestore APIs enabled
 * Google Cloud SDK (`gcloud`) installed and authenticated
 
@@ -174,15 +200,17 @@ cd kilimo-agent/backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-
 ```
 
 Create a `.env` file in the `backend/` directory:
 
 ```env
-GOOGLE_CLOUD_PROJECT=kilimoagent
-GOOGLE_CLOUD_LOCATION=global
-
+GOOGLE_CLOUD_PROJECT=<YOUR_GCP_PROJECT_ID>
+GOOGLE_CLOUD_LOCATION=us-central1
+ADK_MODEL=gemini-2.5-flash
+TWILIO_ACCOUNT_SID=<YOUR_TWILIO_ACCOUNT_SID>
+TWILIO_AUTH_TOKEN=<YOUR_TWILIO_AUTH_TOKEN>
+TWILIO_WHATSAPP_NUMBER=<YOUR_TWILIO_WHATSAPP_NUMBER>
 ```
 
 ### 3. Running the Interactive CLI
@@ -191,7 +219,6 @@ The interactive command-line interface allows testing multimodal inputs locally 
 
 ```bash
 python agent.py
-
 ```
 
 ### 4. Running the API Server
@@ -200,7 +227,6 @@ Start the local FastAPI service:
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 8080 --reload
-
 ```
 
 Interactive API documentation will be available at `http://localhost:8080/docs`.
@@ -209,7 +235,9 @@ Interactive API documentation will be available at `http://localhost:8080/docs`.
 
 ## Cloud Deployment
 
-To package and deploy the service directly to Google Cloud Run:
+### 1. Deploying Backend to Google Cloud Run
+
+To package and deploy the backend service directly to Google Cloud Run:
 
 ```bash
 cd backend
@@ -217,8 +245,19 @@ gcloud run deploy kilimo-backend \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GOOGLE_CLOUD_PROJECT=kilimoagent,GOOGLE_CLOUD_LOCATION=global
+  --set-env-vars GOOGLE_CLOUD_PROJECT=<YOUR_GCP_PROJECT_ID>,GOOGLE_CLOUD_LOCATION=us-central1
+```
 
+### 2. Deploying Frontend to Google Cloud Run
+
+To build the static container and deploy the frontend:
+
+```bash
+cd frontend
+gcloud run deploy kilimo-frontend \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated
 ```
 
 ---
