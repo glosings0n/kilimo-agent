@@ -1,5 +1,4 @@
 export function GeminiIcon({ className = "w-4 h-4", strokeWidth = 2, fill = "none", ...props }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

@@ -1,5 +1,4 @@
 export function DrcFlag({ className = "w-5 h-3.5" }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   return (
     <svg className={`${className} rounded-xs shrink-0 shadow-xs inline-block`} viewBox="0 0 60 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <clipPath id="drc-clip"><rect width="60" height="36" rx="3"/></clipPath>
@@ -18,7 +17,6 @@ export function DrcFlag({ className = "w-5 h-3.5" }) {
 }
 
 export function KenyaFlag({ className = "w-5 h-3.5" }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   return (
     <svg className={`${className} rounded-xs shrink-0 shadow-xs inline-block`} viewBox="0 0 60 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <clipPath id="ke-clip"><rect width="60" height="36" rx="3"/></clipPath>
@@ -43,7 +41,6 @@ export function KenyaFlag({ className = "w-5 h-3.5" }) {
 }
 
 export function RwandaFlag({ className = "w-5 h-3.5" }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   return (
     <svg className={`${className} rounded-xs shrink-0 shadow-xs inline-block`} viewBox="0 0 60 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <clipPath id="rw-clip"><rect width="60" height="36" rx="3"/></clipPath>
@@ -62,7 +59,6 @@ export function RwandaFlag({ className = "w-5 h-3.5" }) {
 }
 
 export function TanzaniaFlag({ className = "w-5 h-3.5" }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   return (
     <svg className={`${className} rounded-xs shrink-0 shadow-xs inline-block`} viewBox="0 0 60 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <clipPath id="tz-clip"><rect width="60" height="36" rx="3"/></clipPath>
@@ -81,7 +77,6 @@ export function TanzaniaFlag({ className = "w-5 h-3.5" }) {
 }
 
 export function UgandaFlag({ className = "w-5 h-3.5" }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   return (
     <svg className={`${className} rounded-xs shrink-0 shadow-xs inline-block`} viewBox="0 0 60 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <clipPath id="ug-clip"><rect width="60" height="36" rx="3"/></clipPath>
@@ -100,7 +95,6 @@ export function UgandaFlag({ className = "w-5 h-3.5" }) {
 }
 
 export function UkFlag({ className = "w-5 h-3.5" }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   return (
     <svg className={`${className} rounded-xs shrink-0 shadow-xs inline-block`} viewBox="0 0 60 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <clipPath id="uk-clip"><rect width="60" height="36" rx="3"/></clipPath>
@@ -116,7 +110,6 @@ export function UkFlag({ className = "w-5 h-3.5" }) {
 }
 
 export function FranceFlag({ className = "w-5 h-3.5" }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   return (
     <svg className={`${className} rounded-xs shrink-0 shadow-xs inline-block`} viewBox="0 0 60 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <clipPath id="fr-clip"><rect width="60" height="36" rx="3"/></clipPath>
@@ -133,7 +126,6 @@ export function FranceFlag({ className = "w-5 h-3.5" }) {
  * Universal CountryFlag component: returns crisp SVG flag for any regional country code or name.
  */
 export function CountryFlag({ country, className = "w-5 h-3.5" }) {
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   const norm = (country || "").toLowerCase().trim();
   if (norm.includes("drc") || norm.includes("rdc") || norm.includes("congo")) {
     return <DrcFlag className={className} />;

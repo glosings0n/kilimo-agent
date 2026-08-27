@@ -122,7 +122,7 @@ function createFlatDepotIcon(depot, isSelected) {
           font-size: ${isSelected ? '14px' : '11px'};
           box-shadow: none;
         ">
-          <CountryFlag country={depot.country} className="w-5 h-3.5" />
+          <span style="font-size: 11px; line-height: 1;">${depot.country === 'DRC' ? '🇨🇩' : depot.country === 'Kenya' ? '🇰🇪' : depot.country === 'Rwanda' ? '🇷🇼' : depot.country === 'Tanzania' ? '🇹🇿' : '🇺🇬'}</span>
         </div>
         <div style="
           background: #090D16;
