@@ -9,7 +9,7 @@ export default function AudioRecorder({
   audioPresetUrl,
   lang
 }) {
-  const t = translations[lang] || translations.en;
+  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -49,7 +49,7 @@ export default function AudioRecorder({
         animationFrameRef.current = requestAnimationFrame(draw);
         analyser.getByteFrequencyData(dataArray);
 
-        canvasCtx.fillStyle = '#0f172a';
+        canvasCtx.fillStyle = '#0B0F17';
         canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
 
         const barWidth = (canvas.width / bufferLength) * 1.5;
@@ -57,14 +57,7 @@ export default function AudioRecorder({
         let x = 0;
 
         for (let i = 0; i < bufferLength; i++) {
-          barHeight = (dataArray[i] / 255) * canvas.height;
-
-          const gradient = canvasCtx.createLinearGradient(0, canvas.height, 0, 0);
-          gradient.addColorStop(0, '#10b981');
-          gradient.addColorStop(0.5, '#14b8a6');
-          gradient.addColorStop(1, '#38bdf8');
-
-          canvasCtx.fillStyle = gradient;
+          canvasCtx.fillStyle = '#10B981';
           canvasCtx.beginPath();
           canvasCtx.roundRect(x, canvas.height - barHeight, barWidth - 2, barHeight, [4, 4, 0, 0]);
           canvasCtx.fill();
@@ -102,14 +95,13 @@ export default function AudioRecorder({
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp4' });
-        const file = new File([audioBlob], `recorded_voice_note_${Date.now()}.mp4`, { type: 'audio/mp4' });
-        setAudioFile(file);
-        setAudioName(file.name);
-        const url = URL.createObjectURL(audioBlob);
-        setRecordedUrl(url);
-        stream.getTracks().forEach(track => track.stop());
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setRecordedUrl(audioUrl);
+        setAudioFile(audioBlob);
+        setAudioName("Live Recording (" + new Date().toLocaleTimeString() + ")");
         stopCanvasVisualizer();
+        stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorder.start();
@@ -118,11 +110,11 @@ export default function AudioRecorder({
       startCanvasVisualizer(stream);
 
       timerRef.current = setInterval(() => {
-        setRecordingDuration((prev) => prev + 1);
+        setRecordingDuration(prev => prev + 1);
       }, 1000);
     } catch (err) {
       console.error("Microphone access error:", err);
-      alert("Impossible d'accéder au micro. Veuillez vérifier les permissions du navigateur.");
+      alert(t.micError);
     }
   };
 
@@ -162,23 +154,23 @@ export default function AudioRecorder({
   };
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+    <div className="bg-[#0F172A]/90 border border-slate-800/90 rounded-3xl p-5 sm:p-6  space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center space-x-2.5">
-          <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
             <Mic className="w-4 h-4 text-amber-400" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-white tracking-wide">
               {t.audioTab}
             </h3>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-400 font-medium">
               Swahili, French, English dialect perception
             </p>
           </div>
         </div>
-        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20">
+        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
           Audio Ground Truth
         </span>
       </div>
@@ -188,7 +180,7 @@ export default function AudioRecorder({
         <div className="relative rounded-2xl overflow-hidden border border-emerald-500/40 bg-slate-950 p-3 text-center space-y-2 animate-in fade-in">
           <div className="flex items-center justify-between text-xs px-2">
             <span className="flex items-center gap-2 text-rose-400 font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
               {t.audioRecording}
             </span>
             <span className="font-mono text-emerald-400 font-bold text-sm">
@@ -199,7 +191,7 @@ export default function AudioRecorder({
             ref={canvasRef}
             width={340}
             height={60}
-            className="w-full h-16 rounded-lg"
+            className="w-full h-16 rounded-lg bg-[#0B0F17] border border-slate-800"
           />
         </div>
       )}
@@ -211,10 +203,10 @@ export default function AudioRecorder({
           <button
             type="button"
             onClick={startRecording}
-            className="flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-amber-500/50 text-white text-xs font-semibold transition active:scale-95 group shadow-sm"
+            className="flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs font-bold transition active:scale-95 group cursor-pointer shadow-xs"
           >
-            <div className="w-6 h-6 rounded-full bg-rose-500/20 flex items-center justify-center group-hover:scale-110 transition">
-              <div className="w-2.5 h-2.5 rounded-full bg-rose-500"></div>
+            <div className="w-5 h-5 rounded-full bg-rose-500/20 flex items-center justify-center group-hover:scale-110 transition">
+              <div className="w-2 h-2 rounded-full bg-rose-500"></div>
             </div>
             <span>{t.audioRecord}</span>
           </button>
@@ -222,7 +214,7 @@ export default function AudioRecorder({
           <button
             type="button"
             onClick={stopRecording}
-            className="flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition active:scale-95 shadow-lg shadow-rose-600/30 animate-pulse"
+            className="flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition active:scale-95  animate-pulse cursor-pointer"
           >
             <Square className="w-4 h-4 fill-current" />
             <span>{t.audioStopRec} ({formatTime(recordingDuration)})</span>
@@ -230,7 +222,7 @@ export default function AudioRecorder({
         )}
 
         {/* Upload Button */}
-        <label className="flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-slate-600 text-white text-xs font-semibold cursor-pointer transition active:scale-95 shadow-sm">
+        <label className="flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs font-bold cursor-pointer transition active:scale-95 shadow-xs">
           <Upload className="w-4 h-4 text-slate-400" />
           <span className="truncate">{t.audioUpload}</span>
           <input
@@ -244,12 +236,12 @@ export default function AudioRecorder({
 
       {/* Audio Player & Active File Indicator */}
       {activeAudioUrl && (
-        <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 flex items-center justify-between space-x-3">
+        <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between space-x-3">
           <div className="flex items-center space-x-3 min-w-0">
             <button
               type="button"
               onClick={togglePlayback}
-              className="w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center justify-center transition shadow-md shadow-amber-500/20 shrink-0"
+              className="w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center justify-center transition shadow-xs shrink-0 cursor-pointer"
               title={isPlaying ? "Pause" : "Play"}
             >
               {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
@@ -258,9 +250,9 @@ export default function AudioRecorder({
               <div className="text-xs font-bold text-white truncate">
                 {audioName || "Voice Note Recording"}
               </div>
-              <div className="text-[11px] text-emerald-400 flex items-center gap-1">
+              <div className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
-                <span>Audio Ground Truth Ready</span>
+                <span>{t.audioGroundTruth}</span>
               </div>
             </div>
           </div>
@@ -275,8 +267,8 @@ export default function AudioRecorder({
       )}
 
       {/* Voice Instruction Tip */}
-      <div className="text-[11px] text-slate-400 leading-relaxed bg-slate-800/40 p-3 rounded-xl border border-slate-700/40">
-        💡 <strong className="text-slate-300">Tip:</strong> {t.audioHint}
+      <div className="text-[11px] text-slate-400 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+        <strong className="text-slate-200">Tip:</strong> {t.audioHint}
       </div>
     </div>
   );

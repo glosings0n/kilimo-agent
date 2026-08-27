@@ -1,10 +1,13 @@
 import os
 import shutil
 import uuid
-from typing import Optional
+from typing import Optional, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from agent import process_multimodal_harvest_request
+from pydantic import BaseModel, Field
+from agent import process_multimodal_harvest_request, process_conversational_intake
+from receptionist_agent import run_receptionist_triage
+from routers.whatsapp import router as whatsapp_router
 
 app = FastAPI(
     title="KilimoAgent Enterprise Orchestrator API",
@@ -20,6 +23,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(whatsapp_router, prefix="/api/v1/whatsapp", tags=["WhatsApp"])
+
 UPLOAD_DIR = "/tmp/kilimo_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -30,14 +35,81 @@ def _clean_str(val: Optional[str]) -> Optional[str]:
     cleaned = str(val).strip()
     return cleaned if cleaned else None
 
-@app.get("/")
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    version: str
+
+class IntakeChatRequest(BaseModel):
+    user_id: Optional[str] = "web_farmer"
+    session_id: Optional[str] = "web_session"
+    message: str
+    current_params: Optional[Dict[str, Any]] = None
+    lang: Optional[str] = "en"
+    execute_on_ready: Optional[bool] = True
+
+
+@app.get("/health", response_model=HealthResponse)
 def health_check():
     return {
         "status": "HEALTHY",
-        "service": "KilimoAgent Backend",
-        "engine": "gemini-3.6-flash",
-        "guardrail": "gemma-2-9b-it"
+        "service": "KilimoAgent Backend Service",
+        "version": "1.0.0"
     }
+
+
+@app.post("/api/v1/intake/chat")
+async def conversational_intake_chat(payload: IntakeChatRequest):
+    """
+    Receptionist & Triage Chat Endpoint:
+    Accepts farmer messages, performs multi-turn variable extraction,
+    returns conversational replies with Generative UI (GenUI) widget metadata.
+    """
+    try:
+        result = await process_conversational_intake(
+            user_id=payload.user_id or "farmer_1",
+            session_id=payload.session_id or "session_1",
+            message=payload.message,
+            current_params=payload.current_params or {},
+            execute_on_ready=payload.execute_on_ready if payload.execute_on_ready is not None else True
+        )
+        return {
+            "success": True,
+            "user_id": payload.user_id,
+            "session_id": payload.session_id,
+            "reply": result.get("reply"),
+            "intent": result.get("intent"),
+            "extracted_params": result.get("extracted_params"),
+            "missing_fields": result.get("missing_fields"),
+            "genui_widgets": result.get("genui_widgets"),
+            "is_ready": result.get("is_ready"),
+            "dispatch_outcome": result.get("dispatch_outcome")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/intake/validate-multimodal")
+async def validate_multimodal(
+    crop: Optional[str] = Form(None),
+    lang: Optional[str] = Form("en"),
+    image: Optional[UploadFile] = File(None),
+    audio: Optional[UploadFile] = File(None)
+):
+    from tools.multimodal_grading import grade_and_validate_harvest_image, validate_and_transcribe_voice_note
+    result = {}
+    
+    if image:
+        image_bytes = await image.read()
+        res = grade_and_validate_harvest_image(image_bytes, crop_hint=crop)
+        result["image_validation"] = res
+        
+    if audio:
+        audio_bytes = await audio.read()
+        res = validate_and_transcribe_voice_note(audio_bytes, lang=lang)
+        result["audio_validation"] = res
+        
+    return result
 
 @app.post("/api/v1/dispatch")
 async def trigger_harvest_dispatch(
@@ -46,6 +118,7 @@ async def trigger_harvest_dispatch(
     volume_kg: Optional[str] = Form(None),
     location: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
+    lang: Optional[str] = Form("en"),
     image: Optional[UploadFile] = File(None),
     audio: Optional[UploadFile] = File(None)
 ):
@@ -58,6 +131,7 @@ async def trigger_harvest_dispatch(
     clean_crop = _clean_str(crop)
     clean_location = _clean_str(location)
     clean_notes = _clean_str(notes)
+    clean_lang = _clean_str(lang) or "en"
     
     clean_volume = None
     if volume_kg and str(volume_kg).strip():
@@ -89,12 +163,14 @@ async def trigger_harvest_dispatch(
             location=clean_location,
             image_source=image_path,
             audio_source=audio_path,
-            notes=clean_notes
+            notes=clean_notes,
+            preferred_language=clean_lang
         )
 
         return {
             "success": True,
             "farmer_id": clean_farmer_id or "AUTONOMOUSLY_ASSIGNED",
+            "language": clean_lang,
             "executive_report": report
         }
 

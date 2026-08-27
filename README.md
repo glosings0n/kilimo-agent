@@ -1,100 +1,156 @@
-# KilimoAgent: Multimodal Agricultural Arbitrage & Logistics Dispatch Agent
+# 🌾 KilimoAgent: Autonomous Cyber-Physical Multimodal Agricultural Arbitrage & Logistics Dispatch
 
-KilimoAgent is an autonomous agent system engineered to eliminate intermediaries and optimize supply chain economics for smallholder agricultural cooperatives. The platform processes raw field media (voice notes and harvest photography), assesses crop quality, evaluates real-time market arbitrage across regional trade hubs, and books freight logistics directly with carriers without requiring manual intervention.
+> **Submission for the Google [All Things Agentic Hackathon](https://allthingsagentichackathon.devpost.com/)**  
+> **Track:** **Taskmaster** (*Build a complete workflow, not just a chatbot. Takes real action, removes friction, handles multi-step chores asynchronously.*)  
+> 🌐 **Live Web Application (Frontend on Cloud Run):** [https://kilimo-frontend-840262173056.us-central1.run.app](https://kilimo-frontend-840262173056.us-central1.run.app)  
+> 🔌 **Live Backend API & ADK Engine (Cloud Run):** [https://kilimo-backend-840262173056.us-central1.run.app](https://kilimo-backend-840262173056.us-central1.run.app)
 
 ---
 
-## Architecture Overview
+## 🌟 Executive Summary
+
+**KilimoAgent** is a next-generation autonomous cyber-physical AI Agent system engineered to eliminate predatory intermediaries and optimize supply chain economics for smallholder agricultural cooperatives across East and Central Africa (DRC, Kenya, Uganda, Rwanda, Tanzania).
+
+Built natively on the **Google Agent Development Kit (ADK)** (`google-adk` v2.8.0), KilimoAgent operates natively across **Swahili (Kiswahili 🇹🇿)**, **French (Français 🇫🇷)**, and **English (🇬🇧)**. It ingests raw multimodal field media (voice notes and harvest photography), executes computer vision quality grading, runs real-time **Google Search Grounding**, conducts a **Strategic Corridor Market Radar Study** to detect intermediate millers and deficit off-ramp hubs, calculates real road freight routes via **Leaflet & OSRM**, and autonomously books freight capacity with cryptographically signed waybills dispatched via **Twilio WhatsApp**.
+
+---
+
+## 🏗️ Cyber-Physical 5-Layer Agentic Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Client ["Ingestion Layer"]
-        USER["Farmer / Cooperative Upload (Voice Note & Photo)"]
-        API["FastAPI Gateway (Google Cloud Run)"]
+    subgraph Intake ["1. Ingestion & Dual Field Channels"]
+        WEB["React 19 Web App\n• 🎴 Guided 5-Step Card Stack\n• ⚡ Multimodal Quick Prompt\n• 🎙️ Trilingual Web Speech Audio"]
+        WA["Twilio WhatsApp Field Gateway\n• Audio Voice Notes / Images\n• Verified Waybill PDF/Text Dispatch"]
+        CLI["Interactive Terminal CLI"]
     end
 
-    subgraph Security ["Security & Guardrail Layer"]
-        GUARD["Gemma 2 (gemma-2-9b-it)\n• Prompt injection scanning\n• Context sanitization\n• Input validation"]
+    subgraph Security ["2. Gemma Model Armor & Security Guardrail"]
+        GUARD["Gemma 2 (gemma-2-9b-it) Model Armor\n• Trilingual Prompt Injection Shield (Swahili / FR / EN)\n• Tool Argument Poisoning Defense (SQLi / Negative Vol)\n• Deep PII Redaction (M-Pesa, Airtel, Orange Money, NIDA)"]
     end
 
-    subgraph Orchestration ["Core Reasoning Engine"]
-        AGENT["Gemini 3.6 Flash Orchestrator\n• Dialect transcription (Swahili / French / English)\n• Computer vision grading\n• Tool invocation & routing"]
+    subgraph ADK_Engine ["3. Google Agent Development Kit (ADK) Engine"]
+        AGENT["Google ADK Agent ('kilimo_dispatch_agent')\n• Model: gemini-2.5-flash / gemini-3.6-flash\n• Multi-turn Session Management via InMemorySessionService\n• Asynchronous Event-driven Execution via Runner.run_async()"]
     end
 
-    subgraph Execution ["Tools & Persistence"]
-        TOOL_ARBITRAGE["Market Arbitrage Engine"]
-        TOOL_FREIGHT["Carrier Dispatch Service"]
-        DB[("Google Cloud Firestore\nState Machine & Audit Trace")]
+    subgraph Execution ["4. Autonomous Cyber-Physical & Strategic Tools"]
+        T1["🌐 google.adk.tools.google_search\nLive commodity spot rates & weather alerts"]
+        T2["📈 analyze_corridor_market_opportunities()\nStrategic off-ramps (Nakuru Millers, Busia, Eldoret)"]
+        T3["📚 get_regional_export_compliance()\nEAC/COMESA moisture (<13.5%) & aflatoxin (<10 ppb) RAG"]
+        T4["🗺️ calculate_route_and_freight()\nGreat-Circle + OSRM Road routing & border clearance"]
+        T5["💰 fetch_realtime_market_arbitrage()\nNet payout optimization (Gross - Real Freight)"]
+        T6["🚚 generate_carrier_waybill()\nSHA-256 digital stamps & collision-resistant waybills"]
+        T7["📦 dispatch_freight_booking()\nFleet lock-in & transit SLA confirmation"]
     end
 
-    USER -->|"Multipart POST /api/v1/dispatch"| API
-    API --> GUARD
-    GUARD -->|"Sanitized payload"| AGENT
-    
-    AGENT <-->|"fetch_market_rates()"| TOOL_ARBITRAGE
-    AGENT <-->|"dispatch_freight_booking()"| TOOL_FREIGHT
-    
-    GUARD -.->|"Update state: GUARDRAIL_AUDITED"| DB
-    AGENT -.->|"Update state: COMPLETED"| DB
-    
-    AGENT -->|"Structured settlement & waybill"| API
-    API --> USER
+    subgraph Persistence ["5. State Machine & Observability"]
+        DB[("Google Cloud Firestore\nImmutable Audit Ledger & Memory Bank")]
+    end
 
+    WEB -->|"Multipart POST /api/v1/dispatch"| GUARD
+    WA -->|"Webhook /api/v1/whatsapp/webhook"| GUARD
+    CLI --> GUARD
+
+    GUARD -->|"Sanitized Context"| AGENT
+    AGENT <--> T1
+    AGENT <--> T2
+    AGENT <--> T3
+    AGENT <--> T4
+    AGENT <--> T5
+    AGENT <--> T6
+    AGENT <--> T7
+
+    GUARD -.->|"Update Stage: GUARDRAIL_AUDITED"| DB
+    AGENT -.->|"Update Stage: COMPLETED"| DB
+
+    AGENT -->|"Structured Executive Outcome"| WEB
+    AGENT -->|"WhatsApp Twilio Bill of Lading"| WA
 ```
 
 ---
 
-## Core System Capabilities
+## 🚀 Core Capabilities (Google ADK & Taskmaster)
 
-* **Unbiased Multimodal Perception:** The agent does not rely on textual declarations. It derives volume and geographic origin directly from spoken audio (including Swahili accents and vernacular phrasing) and evaluates grain condition (moisture, defects, grading) strictly from harvest photography.
-* **Dual-Model Security Pipeline:** Incoming requests pass through a security audit executed by `gemma-2-9b-it` to sanitize inputs and mitigate prompt injection attempts before reaching the primary orchestration layer.
-* **Deterministic Arbitrage Routing:** The system calculates net revenue by subtracting dynamically estimated logistics costs from hub spot prices:
+### 1. Dual-Channel Adaptive Ingestion
+* **🎴 Guided 5-Step Card Stack (`HarvestCardStack.jsx`):** A step-by-step interactive workflow guiding cooperatives through Crop selection, Lot sizing, Depot selection, Multimodal photo/audio, and 1-click Agent Dispatch.
+* **⚡ Multimodal Input Capsule (`MultimodalInputCapsule.jsx`):** Rapid single-turn multimodal prompt with instant audio recording, photo drag-and-drop, and quick language switching (Swahili 🇹🇿, French 🇫🇷, English 🇬🇧).
 
-$$\text{Net Revenue} = (\text{Batch Volume} \times \text{Spot Price}) - \text{Freight Cost}$$
+### 2. Strategic Corridor Market Opportunity Radar
+* Instead of calculating static Point A $\rightarrow$ Point B, KilimoAgent executes an in-transit market study along trade corridors.
+* Evaluates intermediate millers (e.g. *Nakuru Grain Millers*, *Busia Border Terminal*, *Eldoret NCPB Silos*, *Butembo Trading Center*), compares fuel/freight savings vs spot price deltas, and recommends high-margin off-ramps.
 
+### 3. Interactive Geospatial Route Map (`GeospatialRouteMap.jsx`)
+* Built on **Leaflet & OpenStreetMap** with a custom Dark Glassmorphic theme (zero paid API dependencies).
+* Displays:
+  - 🟢 **Origin Depot Marker** with dual pulsing radar rings.
+  - 🔵 **Primary Wholesale Destination**.
+  - 🟠 **Strategic Corridor Opportunity Markers** with instant profit delta badges.
+  - 🛣️ **Glowing Route Polyline** with live distance (KM) and transit duration HUD.
 
-* **Transactional State Management:** Every request lifecycle is tracked in Google Cloud Firestore across defined stages (`INITIALIZED`, `GUARDRAIL_AUDITED`, `RUNNING_PIPELINE`, `COMPLETED`), maintaining an audit log and assigning collision-resistant transaction IDs.
+### 4. Dual-Model Security Pipeline with Gemma 2
+* Every field submission is audited by **Gemma 2 (`gemma-2-9b-it`) Model Armor**.
+* Detects adversarial prompt injections in Swahili, French, and English, prevents negative-volume/SQLi poisoning, and redacts PII (M-Pesa transaction IDs, national identity numbers, mobile money numbers).
 
----
-
-## Technology Stack
-
-* **Foundation Models:**
-* `gemini-3.6-flash` (Primary multimodal orchestration and function calling)
-* `gemma-2-9b-it` (Pre-execution guardrail and sanitization)
-
-
-* **Application Framework:** Python 3.12, FastAPI, Uvicorn, Google GenAI Enterprise SDK
-* **Google Cloud Infrastructure:**
-* **Cloud Run:** Managed serverless execution environment
-* **Cloud Firestore:** Distributed state persistence and audit ledger
-* **Artifact Registry & Cloud Build:** Container compilation and packaging
-
-
+### 5. Omnichannel Twilio WhatsApp Dispatch
+* Complete integration with **Twilio WhatsApp API** (`twilio.rest.Client`).
+* Automated waybill dispatch to cooperative leaders and farmers via WhatsApp with electronic receipts and cryptographic tracking hashes (`KILIMO-WB-YYYYMMDD-<HEX>`).
 
 ---
 
-## Repository Structure
+## 🛠️ Technology Stack
+
+| Layer | Technologies |
+| :--- | :--- |
+| **Agent Framework** | **Google Agent Development Kit (ADK)** (`google-adk` v2.8.0) |
+| **Foundation Models** | **Gemini 2.5 Flash / Gemini 3.6 Flash** (Orchestration), **Gemma 2 9B-IT** (Model Armor Guardrail) |
+| **Grounding & Tools** | `google.adk.tools.google_search`, OSRM Geodesic Routing, EAC Regulatory RAG, SHA-256 Ledger |
+| **Cloud Infrastructure** | **Google Cloud Run** (Serverless execution), **Cloud Firestore** (State machine & Audit ledger) |
+| **Frontend App** | React 19, Vite 8, Tailwind CSS v4, Leaflet, React-Leaflet, Lucide Icons |
+| **Field Channels** | Twilio WhatsApp API (`twilio>=9.11.0`), REST API, Terminal CLI |
+
+---
+
+## 📂 Repository Structure
 
 ```text
 .
 ├── backend/
-│   ├── assets/
-│   │   ├── audios/            # Test voice notes (.mp4, .mp3)
-│   │   └── images/            # Test harvest media (.jpg, .png)
+│   ├── assets/                      # Sample voice notes (.mp4) and harvest images (.jpg)
 │   ├── guardrails/
-│   │   └── gemma_guard.py     # Gemma-based safety and sanitization module
+│   │   └── gemma_guard.py           # Gemma 2 Multilingual Model Armor & PII Redactor
+│   ├── routers/
+│   │   └── whatsapp.py              # Twilio WhatsApp webhook, dispatcher & simulator
+│   ├── schemas/
+│   │   └── dispatch_schema.py       # Pydantic v2 Executive Dispatch models
 │   ├── state/
-│   │   └── firestore_manager.py # Firestore transaction and state management
+│   │   └── firestore_manager.py     # Cloud Firestore state machine & memory bank
 │   ├── tools/
-│   │   └── market_and_logistics.py # Arbitrage pricing and logistics dispatch tools
-│   ├── agent.py               # Gemini orchestration pipeline and CLI runner
-│   ├── main.py                # FastAPI HTTP application
-│   ├── Dockerfile             # Container definition for Cloud Run
-│   ├── .dockerignore          # Build context exclusions
-│   └── requirements.txt       # Project dependencies
-└── README.md
-
+│   │   └── market_and_logistics.py  # Corridor Market Radar, Routing & Waybill tools
+│   ├── agent.py                     # Google ADK Agent ('kilimo_dispatch_agent') & Runner
+│   ├── main.py                      # FastAPI enterprise orchestrator service
+│   ├── requirements.txt             # Python dependencies (google-adk, twilio, etc.)
+│   └── test_guardrail_and_whatsapp.py # Automated test suite (15/15 tests passing)
+│
+└── frontend/
+    ├── src/
+    │   ├── components/
+    │   │   ├── GeospatialRouteMap.jsx   # Interactive Dark Leaflet Corridor Map
+    │   │   ├── HarvestCardStack.jsx     # 5-Step Guided Card Stack UX
+    │   │   ├── MultimodalInputCapsule.jsx # Rapid prompt capsule with audio/photo
+    │   │   ├── WhatsAppSimulatorModal.jsx # Interactive Twilio WhatsApp simulator
+    │   │   ├── GeminiLiveModal.jsx      # Multimodal Live streaming camera/voice modal
+    │   │   ├── ArbitrageChart.jsx       # Multi-market comparative financial breakdown
+    │   │   ├── WaybillCard.jsx          # Cryptographic bill of lading card
+    │   │   └── ArchitectureModal.jsx    # 5-Layer engineering architecture explorer
+    │   ├── utils/
+    │   │   ├── audioSynthesizer.js      # TTS multi-language speech engine
+    │   │   ├── parser.js                # Structured JSON & ledger extractor
+    │   │   ├── presets.js               # 1-Click judge test scenarios
+    │   │   └── translations.js          # Full Swahili, French, English dictionaries
+    │   ├── App.jsx                      # Root interactive dashboard
+    │   └── main.jsx
+    ├── package.json
+    └── vite.config.js
 ```
 
 ---
