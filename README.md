@@ -1,26 +1,26 @@
-# 🌾 KilimoAgent: Autonomous Cyber-Physical Multimodal Agricultural Arbitrage & Logistics Dispatch
+# KilimoAgent: Autonomous Cyber-Physical Multimodal Agricultural Arbitrage & Logistics Dispatch
 
 > **Submission for the Google [All Things Agentic Hackathon](https://allthingsagentichackathon.devpost.com/)**  
 > **Track:** **Taskmaster** (*Build a complete workflow, not just a chatbot. Takes real action, removes friction, handles multi-step chores asynchronously.*)  
-> 🌐 **Live Web Application (Frontend on Cloud Run):** [https://kilimo-frontend-840262173056.us-central1.run.app](https://kilimo-frontend-840262173056.us-central1.run.app)  
-> 🔌 **Live Backend API & ADK Engine (Cloud Run):** [https://kilimo-backend-840262173056.us-central1.run.app](https://kilimo-backend-840262173056.us-central1.run.app)
+> - **Live Web Application (Frontend on Cloud Run):** [https://kilimo-frontend-840262173056.us-central1.run.app](https://kilimo-frontend-840262173056.us-central1.run.app)  
+> - **Live Backend API & ADK Engine (Cloud Run):** [https://kilimo-backend-840262173056.us-central1.run.app](https://kilimo-backend-840262173056.us-central1.run.app)
 
 ---
 
-## 🌟 Executive Summary
+## Executive Summary
 
 **KilimoAgent** is a next-generation autonomous cyber-physical AI Agent system engineered to eliminate predatory intermediaries and optimize supply chain economics for smallholder agricultural cooperatives across East and Central Africa (DRC, Kenya, Uganda, Rwanda, Tanzania).
 
-Built natively on the **Google Agent Development Kit (ADK)** (`google-adk` v2.8.0), KilimoAgent operates natively across **Swahili (Kiswahili 🇹🇿)**, **French (Français 🇫🇷)**, and **English (🇬🇧)**. It ingests raw multimodal field media (voice notes and harvest photography), executes computer vision quality grading, runs real-time **Google Search Grounding**, conducts a **Strategic Corridor Market Radar Study** to detect intermediate millers and deficit off-ramp hubs, calculates real road freight routes via **Leaflet & OSRM**, and autonomously books freight capacity with cryptographically signed waybills dispatched via **Twilio WhatsApp**.
+Built natively on the **Google Agent Development Kit (ADK)** (`google-adk` v2.8.0), KilimoAgent operates natively across **Swahili (Kiswahili)**, **French (Français)**, and **English**. It ingests raw multimodal field media (voice notes and harvest photography), executes computer vision quality grading, runs real-time **Google Search Grounding**, conducts a **Strategic Corridor Market Radar Study** to detect intermediate millers and deficit off-ramp hubs, calculates real road freight routes via **Leaflet & OSRM**, and autonomously books freight capacity with cryptographically signed waybills dispatched via **Twilio WhatsApp**.
 
 ---
 
-## 🏗️ Cyber-Physical 5-Layer Agentic Architecture
+## Cyber-Physical 5-Layer Agentic Architecture
 
 ```mermaid
 flowchart TD
     subgraph Intake ["1. Ingestion & Dual Field Channels"]
-        WEB["React 19 Web App\n• 🎴 Guided 5-Step Card Stack\n• ⚡ Multimodal Quick Prompt\n• 🎙️ Trilingual Web Speech Audio"]
+        WEB["React 19 Web App\n• Guided 5-Step Card Stack\n• Multimodal Quick Prompt\n• Trilingual Web Speech Audio"]
         WA["Twilio WhatsApp Field Gateway\n• Audio Voice Notes / Images\n• Verified Waybill PDF/Text Dispatch"]
         CLI["Interactive Terminal CLI"]
     end
@@ -34,13 +34,13 @@ flowchart TD
     end
 
     subgraph Execution ["4. Autonomous Cyber-Physical & Strategic Tools"]
-        T1["🌐 google.adk.tools.google_search\nLive commodity spot rates & weather alerts"]
-        T2["📈 analyze_corridor_market_opportunities()\nStrategic off-ramps (Nakuru Millers, Busia, Eldoret)"]
-        T3["📚 get_regional_export_compliance()\nEAC/COMESA moisture (<13.5%) & aflatoxin (<10 ppb) RAG"]
-        T4["🗺️ calculate_route_and_freight()\nGreat-Circle + OSRM Road routing & border clearance"]
-        T5["💰 fetch_realtime_market_arbitrage()\nNet payout optimization (Gross - Real Freight)"]
-        T6["🚚 generate_carrier_waybill()\nSHA-256 digital stamps & collision-resistant waybills"]
-        T7["📦 dispatch_freight_booking()\nFleet lock-in & transit SLA confirmation"]
+        T1["google.adk.tools.google_search\nLive commodity spot rates & weather alerts"]
+        T2["analyze_corridor_market_opportunities()\nStrategic off-ramps (Nakuru Millers, Busia, Eldoret)"]
+        T3["get_regional_export_compliance()\nEAC/COMESA moisture (<13.5%) & aflatoxin (<10 ppb) RAG"]
+        T4["calculate_route_and_freight()\nGreat-Circle + OSRM Road routing & border clearance"]
+        T5["fetch_realtime_market_arbitrage()\nNet payout optimization (Gross - Real Freight)"]
+        T6["generate_carrier_waybill()\nSHA-256 digital stamps & collision-resistant waybills"]
+        T7["dispatch_freight_booking()\nFleet lock-in & transit SLA confirmation"]
     end
 
     subgraph Persistence ["5. State Machine & Observability"]
@@ -69,23 +69,23 @@ flowchart TD
 
 ---
 
-## 🚀 Core Capabilities (Google ADK & Taskmaster)
+## Core Capabilities (Google ADK & Taskmaster)
 
 ### 1. Dual-Channel Adaptive Ingestion
-* **🎴 Guided 5-Step Card Stack (`HarvestCardStack.jsx`):** A step-by-step interactive workflow guiding cooperatives through Crop selection, Lot sizing, Depot selection, Multimodal photo/audio, and 1-click Agent Dispatch.
-* **⚡ Multimodal Input Capsule (`MultimodalInputCapsule.jsx`):** Rapid single-turn multimodal prompt with instant audio recording, photo drag-and-drop, and quick language switching (Swahili 🇹🇿, French 🇫🇷, English 🇬🇧).
+* **Guided 5-Step Card Stack (`HarvestCardStack.jsx`):** A step-by-step interactive workflow guiding cooperatives through Crop selection, Lot sizing, Depot selection, Multimodal photo/audio, and 1-click Agent Dispatch.
+* **Multimodal Input Capsule (`MultimodalInputCapsule.jsx`):** Rapid single-turn multimodal prompt with instant audio recording, photo drag-and-drop, and quick language switching (Swahili, French, English).
 
 ### 2. Strategic Corridor Market Opportunity Radar
-* Instead of calculating static Point A $\rightarrow$ Point B, KilimoAgent executes an in-transit market study along trade corridors.
+* Instead of calculating static Point A to Point B, KilimoAgent executes an in-transit market study along trade corridors.
 * Evaluates intermediate millers (e.g. *Nakuru Grain Millers*, *Busia Border Terminal*, *Eldoret NCPB Silos*, *Butembo Trading Center*), compares fuel/freight savings vs spot price deltas, and recommends high-margin off-ramps.
 
 ### 3. Interactive Geospatial Route Map (`GeospatialRouteMap.jsx`)
-* Built on **Leaflet & OpenStreetMap** with a custom Dark Glassmorphic theme (zero paid API dependencies).
+* Built on **Leaflet & OpenStreetMap** with a custom Dark theme (zero paid API dependencies).
 * Displays:
-  - 🟢 **Origin Depot Marker** with dual pulsing radar rings.
-  - 🔵 **Primary Wholesale Destination**.
-  - 🟠 **Strategic Corridor Opportunity Markers** with instant profit delta badges.
-  - 🛣️ **Glowing Route Polyline** with live distance (KM) and transit duration HUD.
+  - **Origin Depot Marker** with dual pulsing radar rings.
+  - **Primary Wholesale Destination**.
+  - **Strategic Corridor Opportunity Markers** with instant profit delta badges.
+  - **Route Polyline** with live distance (KM) and transit duration HUD.
 
 ### 4. Dual-Model Security Pipeline with Gemma 2
 * Every field submission is audited by **Gemma 2 (`gemma-2-9b-it`) Model Armor**.
@@ -97,7 +97,7 @@ flowchart TD
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 | Layer | Technologies |
 | :--- | :--- |
@@ -110,7 +110,7 @@ flowchart TD
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 
 ```text
 .
