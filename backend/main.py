@@ -71,6 +71,7 @@ async def conversational_intake_chat(payload: IntakeChatRequest):
             session_id=payload.session_id or "session_1",
             message=payload.message,
             current_params=payload.current_params or {},
+            preferred_language=payload.lang or "auto",
             execute_on_ready=payload.execute_on_ready if payload.execute_on_ready is not None else True
         )
         return {
@@ -79,6 +80,7 @@ async def conversational_intake_chat(payload: IntakeChatRequest):
             "session_id": payload.session_id,
             "reply": result.get("reply"),
             "intent": result.get("intent"),
+            "detected_language": result.get("detected_language"),
             "extracted_params": result.get("extracted_params"),
             "missing_fields": result.get("missing_fields"),
             "genui_widgets": result.get("genui_widgets"),

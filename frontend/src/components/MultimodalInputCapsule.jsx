@@ -446,15 +446,24 @@ export default function MultimodalInputCapsule({
       // 1. Instant Client-Side Language Detection & Global App State Adaptation
       const lower = userText.toLowerCase();
       let autoLang = lang;
-      if (/^(salut|bonjour|bonsoir|coucou|je\s|j'ai|combien|merci|vente|recolte)/i.test(lower) || /\b(bonjour|salut|merci|manioc|mais|haricots|recolte|prix|dépôt|depot)\b/i.test(lower)) {
+      if (
+        /^(salut|bonjour|bonsoir|coucou|allo|allô|bienvenue|je\s|j'ai|combien|merci|vente|recolte|récolte|culture|dépôt|depot)/i.test(lower) ||
+        /\b(bonjour|salut|merci|manioc|mais|maïs|haricots|haricot|recolte|récolte|prix|dépôt|depot|tonnes|kilos|transport)\b/i.test(lower)
+      ) {
         autoLang = 'fr';
-      } else if (/^(habari|jambo|hujambo|mambo|shikamoo|karibu|nataka|nina|asante)/i.test(lower) || /\b(habari|jambo|asante|mahindi|gunia|magunia|muhogo|nyanya|maharagwe|bei|kituo)\b/i.test(lower)) {
+      } else if (
+        /^(habari|jambo|hujambo|sijambo|mambo|niaje|ni\s*aje|sasa|vipi|shikamoo|karibu|nataka|nina|asante)/i.test(lower) ||
+        /\b(habari|jambo|asante|mahindi|gunia|magunia|muhogo|nyanya|maharagwe|bei|kituo|soko|shamba|ghala|usafiri|kuuza)\b/i.test(lower)
+      ) {
         autoLang = 'sw';
-      } else if (/^(hello|hi|hey|good morning|i have|i want)/i.test(lower) || /\b(hello|maize|beans|cassava|coffee|price|transport)\b/i.test(lower)) {
+      } else if (
+        /^(hello|hi|hey|good morning|good afternoon|good evening|i have|i want|greetings)/i.test(lower) ||
+        /\b(hello|maize|beans|cassava|coffee|price|transport|harvest|depot|sell)\b/i.test(lower)
+      ) {
         autoLang = 'en';
       }
 
-      if (autoLang !== lang && setLang) {
+      if (autoLang && setLang) {
         setLang(autoLang);
       }
 
@@ -487,7 +496,7 @@ export default function MultimodalInputCapsule({
 
         if (response.ok) {
           const data = await response.json();
-          if (data.detected_language && data.detected_language !== lang && setLang) {
+          if (data.detected_language && setLang) {
             setLang(data.detected_language);
           }
 

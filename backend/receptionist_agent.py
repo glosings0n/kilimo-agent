@@ -89,21 +89,30 @@ receptionist_runner = Runner(
 )
 
 
-def _detect_lang_receptionist(text: str) -> str:
+def _detect_lang_receptionist(text: str) -> Optional[str]:
     """Identifies primary language: Swahili ('sw'), French ('fr'), or English ('en')."""
     if not text:
-        return "en"
-    text_l = text.lower()
-    sw_words = ["habari", "jambo", "hujambo", "sijambo", "asante", "shamba", "mahindi", "gunia", "magunia", "kilo", "muhogo", "nyanya", "maharagwe", "bei", "usafiri", "kitale", "eldoret", "nakuru", "nipo", "tuma", "soko", "karibu"]
-    fr_words = ["bonjour", "salut", "merci", "champ", "maïs", "manioc", "tomates", "haricots", "prix", "transport", "récolte", "sac", "sacs", "goma", "bukavu", "bunia", "kilo", "tonnes", "bienvenue"]
+        return None
+    text_l = text.lower().strip()
     
-    sw_c = sum(1 for w in sw_words if w in text_l)
-    fr_c = sum(1 for w in fr_words if w in text_l)
+    # Direct fast-path regex for typical greetings and regional expressions
+    if re.search(r'^(salut|bonjour|bonsoir|coucou|allo|allô|bienvenue)\b', text_l) or re.search(r'\b(je\s|j\'ai|recolte|récolte|combien|manioc|haricot|mais|maïs|sacs?|vendre|agricole|dépôt|depot)\b', text_l):
+        return "fr"
+    if re.search(r'^(habari|jambo|hujambo|sijambo|mambo|niaje|ni\s*aje|sasa|vipi|shikamoo|karibu)\b', text_l) or re.search(r'\b(nataka|nina|mahindi|muhogo|maharagwe|nyanya|gunia|magunia|bei|shamba|soko|kituo|ghala)\b', text_l):
+        return "sw"
+    if re.search(r'^(hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening|greetings)\b', text_l) or re.search(r'\b(i\s+have|i\s+want|maize|beans|cassava|coffee|dispatch|farmer|price|depot)\b', text_l):
+        return "en"
+
+    sw_words = ["habari", "jambo", "hujambo", "sijambo", "mambo", "niaje", "sasa", "vipi", "asante", "shamba", "mahindi", "gunia", "magunia", "kilo", "muhogo", "nyanya", "maharagwe", "bei", "usafiri", "kitale", "eldoret", "nakuru", "nipo", "tuma", "soko", "karibu", "kuuza"]
+    fr_words = ["bonjour", "salut", "bonsoir", "coucou", "merci", "champ", "maïs", "mais", "manioc", "tomates", "haricots", "prix", "transport", "récolte", "recolte", "sac", "sacs", "goma", "bukavu", "bunia", "kilo", "tonnes", "bienvenue", "vendre"]
+    
+    sw_c = sum(1 for w in sw_words if re.search(rf"\b{w}\b", text_l))
+    fr_c = sum(1 for w in fr_words if re.search(rf"\b{w}\b", text_l))
     if sw_c > fr_c and sw_c > 0:
         return "sw"
     if fr_c > sw_c and fr_c > 0:
         return "fr"
-    return "en"
+    return None
 
 
 def _extract_crop_rule(text: str) -> Optional[str]:
@@ -140,7 +149,7 @@ def _extract_crop_rule(text: str) -> Optional[str]:
     # If the message is short (1-2 words) and doesn't match greetings/depots/numbers, treat it as a custom crop name
     words = [w for w in re.sub(r'[^\w\s]', '', text).strip().split() if len(w) > 1]
     if 1 <= len(words) <= 3 and not any(w.isdigit() for w in words):
-        ignored = {"salut", "bonjour", "habari", "hello", "hi", "jambo", "yes", "no", "oui", "non", "ndio", "hapana", "ok", "okay", "kitale", "goma", "bunia", "eldoret", "nakuru", "bukavu", "gisenyi"}
+        ignored = {"salut", "bonjour", "habari", "hello", "hi", "jambo", "yes", "no", "oui", "non", "ndio", "hapana", "ok", "okay", "kitale", "goma", "bunia", "eldoret", "nakuru", "bukavu", "gisenyi", "niaje", "sasa", "vipi", "mambo"}
         if not all(w.lower() in ignored for w in words):
             return " ".join(words).title()
 
@@ -202,14 +211,14 @@ def _extract_destination_rule(text: str) -> Optional[str]:
 def _is_pure_greeting(text: str) -> bool:
     text_clean = re.sub(r'[^\w\s]', '', text.lower()).strip()
     greetings = {
-        "habari", "jambo", "hujambo", "sijambo", "mambo", "shikamoo", "karibu",
-        "bonjour", "salut", "bonsoir", "coucou", "hello", "hi", "hey", "good morning",
+        "habari", "jambo", "hujambo", "sijambo", "mambo", "shikamoo", "karibu", "niaje", "sasa", "vipi",
+        "bonjour", "salut", "bonsoir", "coucou", "allo", "hello", "hi", "hey", "good morning",
         "good afternoon", "good evening", "greetings"
     }
     tokens = text_clean.split()
     if not tokens:
         return True
-    if len(tokens) <= 3 and all(t in greetings for t in tokens):
+    if len(tokens) <= 3 and any(t in greetings for t in tokens):
         return True
     return False
 
@@ -223,8 +232,11 @@ def _rule_based_triage(
 ) -> Dict[str, Any]:
     """Deterministic fallback triage when LLM is unavailable or offline."""
     ctx = dict(context_state or {})
-    active_lang = lang or _detect_lang_receptionist(message) or "en"
     clean_msg = message
+    detected = _detect_lang_receptionist(clean_msg)
+    active_lang = detected or lang or "en"
+    if active_lang not in ["fr", "sw", "en"]:
+        active_lang = "en"
 
     if image_bytes:
         img_res = grade_and_validate_harvest_image(image_bytes, ctx.get("crop"))
@@ -386,7 +398,10 @@ async def run_receptionist_triage(
     """
     clean_msg = (message or "").strip()
     ctx = dict(context_state or {})
-    active_lang = lang or _detect_lang_receptionist(clean_msg) or "en"
+    detected = _detect_lang_receptionist(clean_msg)
+    active_lang = detected or (lang if lang and lang != "auto" else None) or "en"
+    if active_lang not in ["fr", "sw", "en"]:
+        active_lang = "en"
 
     if image_bytes:
         img_res = grade_and_validate_harvest_image(image_bytes, ctx.get("crop"))
