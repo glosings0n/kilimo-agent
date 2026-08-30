@@ -69,7 +69,7 @@ export default function App() {
   const [activeStep, setActiveStep] = useState(0);
   const [hasExecuted, setHasExecuted] = useState(false);
   const [error, setError] = useState(null);
-  const [activeResultTab, setActiveResultTab] = useState('report'); // 'report' | 'arbitrage' | 'map' | 'ledger'
+  const [activeTab, setActiveTab] = useState('arbitrage'); // 'arbitrage' | 'geospatial' | 'multimodal' | 'waybill' | 'architecture' | 'ledger'
   const [rawReport, setRawReport] = useState(null);
   const [parsedData, setParsedData] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -929,6 +929,7 @@ export default function App() {
                   locationOverride={locationOverride}
                   setLocationOverride={setLocationOverride}
                   hasExecuted={true}
+                  backendUrl={backendUrl}
                   setLang={setLang}
                 />
               </div>
