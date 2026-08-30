@@ -359,17 +359,29 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
     ];
   };
 
-  const handleResetChat = () => {
+  const handleResetChat = async () => {
     setConvState({ step: 'GREETING', crop: null, volume: null, depot: null });
+    try {
+      if (backendUrl && backendUrl.startsWith("http")) {
+        await fetch(`${backendUrl}/api/v1/whatsapp/session/reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone_number: phoneNumber })
+        });
+      }
+    } catch (e) {
+      console.warn("Could not reset backend session:", e);
+    }
+
     setMessages([
       {
         sender: 'bot',
         text:
           selectedLang === 'sw'
-            ? "🌾 *Karibu tena KilimoAgent WhatsApp Gateway*\n\nTuma salamu au maelezo ya mavuno yako kuanza upya."
+            ? "🌾 *Karibu tena KilimoAgent WhatsApp Gateway*\n\nTuma salamu au maelezo ya mavuno yako kuanza upya.\n\n_Mfano: 'Habari' au 'Nina mahindi 1500kg Bunia'_"
             : selectedLang === 'fr'
-            ? "🌾 *Bienvenue à nouveau sur KilimoAgent WhatsApp Gateway*\n\nEnvoyez un message pour commencer une nouvelle expédition."
-            : "🌾 *Welcome back to KilimoAgent WhatsApp Gateway*\n\nSend a message to start a fresh dispatch.",
+            ? "🌾 *Bienvenue à nouveau sur KilimoAgent WhatsApp Gateway*\n\nEnvoyez un message pour commencer une nouvelle expédition.\n\n_Exemple: 'Bonjour' ou 'J'ai 1500 kg de maïs à Bunia'_"
+            : "🌾 *Welcome back to KilimoAgent WhatsApp Gateway*\n\nSend a message to start a fresh dispatch.\n\n_Example: 'Hello' or 'I have 1500kg maize at Bunia depot'_",
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ]);
@@ -506,7 +518,13 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
             <button
               key={idx}
               type="button"
-              onClick={() => handleSend(null, chip.val)}
+              onClick={() => {
+                if (chip.label.includes("Start New Request") || chip.label.includes("Anza upya")) {
+                  handleResetChat();
+                } else {
+                  handleSend(null, chip.val);
+                }
+              }}
               className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-[11px] font-bold whitespace-nowrap transition cursor-pointer shrink-0"
             >
               {chip.label}

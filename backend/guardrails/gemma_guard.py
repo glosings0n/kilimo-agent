@@ -271,6 +271,21 @@ class GemmaModelArmor:
                 "detected_lang": detected_lang
             }
 
+        # 2.5 Coercive / Hostile Demands & Injunctions ("Donne moi je t'oblige", "Obéis-moi")
+        coercive_pattern = r"(?i)\b(donne[- ]moi\s+je\s+t['’]oblige|je\s+t['’]oblige|je\s+t['’]ordonne|ob[ée]is[- ]moi|fais\s+ce\s+que\s+je\s+(te\s+)?dis|t['’]as\s+pas\s+le\s+choix|force[- ]toi|je\s+t['’]impose|lazima\s+unipe|nakulazimisha|nakuamuru|fanya\s+ninachosema|i\s+command\s+you|i\s+force\s+you|you\s+must\s+obey|do\s+as\s+i\s+say)\b"
+        if re.search(coercive_pattern, lower):
+            replies = {
+                "fr": "KilimoAgent est un agent autonome strictement encadré par ses protocoles d'arbitrage agricole et de logistique des récoltes. Je ne peux répondre qu'aux déclarations de récoltes, cotations et affrètements de transport. Veuillez indiquer votre culture (ex. Maïs, Manioc, Café) ou taper 'Nouveau' pour une nouvelle demande.",
+                "sw": "KilimoAgent ni wakala anayeongozwa na itifaki za kilimo na usafirishaji wa mazao pekee. Ninaweza kusaidia tu kwa bei za soko, ubora na malori. Tafadhali taja zao lako au andika 'Anza upya'.",
+                "en": "KilimoAgent is an autonomous agent strictly governed by agricultural market and freight logistics protocols. I can only process crop declarations, pricing arbitrage, and carrier bookings. Please specify your crop (e.g. Maize, Cassava, Coffee) or type 'New'."
+            }
+            return {
+                "is_flagged": True,
+                "category": "COERCIVE_DEMAND",
+                "reply": replies.get(detected_lang, replies["en"]),
+                "detected_lang": detected_lang
+            }
+
         # 3. Off-topic questions (asking for general knowledge, coding, politics, philosophy, stories, etc.)
         off_topic_patterns = [
             r"(?i)\b(qui\s+est\s+(le\s+)?pr[ée]sident|capitale\s+de|m[ée]t[ée]o\s+demain|raconte(-moi)?\s+une\s+blague|histoire\s+dr[oô]le|code\s+python|javascript|react|programme(-moi)?|chante|po[eè]me|recette\s+de\s+cuisine|qui\s+t['’]a\s+cr[ée][ée]|sens\s+de\s+la\s+vie)\b",

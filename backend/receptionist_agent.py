@@ -125,43 +125,57 @@ def _detect_lang_receptionist(text: str) -> Optional[str]:
     return None
 
 
+def _is_reset_or_new_request(text: str) -> bool:
+    """Detects user requests to start a new harvest, sell another commodity, or restart."""
+    if not text:
+        return False
+    text_clean = text.lower().strip()
+    patterns = [
+        r"(?i)\b(autre\s+(truc|chose|r[ée]colte|produit|lot|cargaison|culture)|nouvelle?\s+(demande|r[ée]colte|vente|exp[ée]dition)|recommencer|recommence|reset|start\s+(new|over|again)|new\s+request|diff[ée]rente?\s+culture|j['’]ai\s+autre)\b",
+        r"(?i)\b(zao\s+lingine|kitu\s+kingine|mzigo\s+mwingine|habari\s+nyingine|anza\s+upya|anza\s+tena|omba\s+upya)\b",
+        r"(?i)\b(another\s+(crop|thing|harvest|batch|cargo)|start\s+(over|again|new)|new\s+(request|dispatch|order)|reset\s+session)\b"
+    ]
+    return any(re.search(pat, text_clean) for pat in patterns)
+
+
 def _extract_crop_rule(text: str) -> Optional[str]:
     text_l = text.lower()
     crop_map = {
-        "maize": ["maize", "corn", "mahindi", "hindi", "maïs", "mais"],
-        "cassava": ["cassava", "muhogo", "mihogo", "manioc"],
-        "beans": ["beans", "maharagwe", "haricots", "haricot", "maharage"],
-        "coffee": ["coffee", "kahawa", "café", "cafe"],
-        "tomatoes": ["tomatoes", "tomato", "nyanya", "tomates", "tomate"],
-        "sorghum": ["sorghum", "mtama", "sorgho"],
-        "rice": ["rice", "mchele", "mpunga", "riz"],
-        "soya": ["soya", "soybeans", "soja"],
-        "avocado": ["avocado", "parachichi", "avocat"],
-        "sunflower": ["sunflower", "alizeti", "tournesol"],
-        "wheat": ["wheat", "ngano", "blé", "ble"],
-        "sesame": ["sesame", "ufuta", "sésame"],
-        "tea": ["tea", "chai", "thé", "the"],
-        "potatoes": ["potatoes", "potato", "viazi", "pommes de terre"],
-        "onions": ["onions", "vitunguu", "oignons"]
+        "Maize": ["maize", "corn", "mahindi", "hindi", "maïs", "mais"],
+        "Cassava": ["cassava", "muhogo", "mihogo", "manioc"],
+        "Dry Beans": ["dry beans", "beans", "maharagwe", "haricots secs", "haricots", "haricot", "maharage"],
+        "Coffee": ["coffee", "kahawa", "café", "cafe", "arabica", "robusta"],
+        "Tomatoes": ["tomatoes", "tomato", "nyanya", "tomates", "tomate"],
+        "Sorghum": ["sorghum", "mtama", "sorgho"],
+        "Rice": ["rice", "mchele", "mpunga", "riz"],
+        "Soybeans": ["soybeans", "soya", "soja"],
+        "Avocado": ["avocado", "parachichi", "avocat"],
+        "Sunflower": ["sunflower", "alizeti", "tournesol"],
+        "Wheat": ["wheat", "ngano", "blé", "ble"],
+        "Sesame": ["sesame", "ufuta", "sésame"],
+        "Tea": ["tea", "chai", "thé", "the"],
+        "Potatoes": ["irish potatoes", "potatoes", "potato", "viazi mviringo", "viazi", "pommes de terre", "patates"],
+        "Sweet Potatoes": ["sweet potatoes", "sweet potato", "patate douce", "patates douces", "viazi vitamu", "kiazi kitamu"],
+        "Groundnuts": ["groundnuts", "peanuts", "arachides", "arachide", "karanga"],
+        "Bananas": ["bananas", "banana", "matoke", "bananes", "plantains"],
+        "Onions": ["onions", "onion", "vitunguu", "oignons", "oignon"],
+        "Millet": ["millet", "uwele", "wimbi"],
+        "Cotton": ["cotton", "pamba", "coton"],
+        "Cocoa": ["cocoa", "cacao"],
+        "Sugarcane": ["sugarcane", "miwa", "canne à sucre", "canne a sucre"],
+        "Palm Oil": ["palm oil", "huile de palme", "mawese"]
     }
     for standard_name, synonyms in crop_map.items():
         for syn in synonyms:
             if re.search(rf"\b{re.escape(syn)}\b", text_l):
-                return standard_name.capitalize()
+                return standard_name
                 
     # Detect prefix declarations like "crop: Sunflower", "zao: Mtama", "culture: Riz"
     prefix_match = re.search(r'(?:crop|zao|culture|récolte|harvest|produit|selling|kuuza|vendre)\s*[:=]?\s*([a-zA-Z\u00C0-\u00FF\s]+)', text, re.IGNORECASE)
     if prefix_match:
         candidate = prefix_match.group(1).strip().split()[0]
-        if len(candidate) > 2 and candidate.lower() not in ["de", "du", "des", "ya", "wa", "za", "of", "my", "our"]:
+        if len(candidate) > 2 and candidate.lower() not in ["de", "du", "des", "ya", "wa", "za", "of", "my", "our", "un", "une", "autre", "truc", "chose"]:
             return candidate.capitalize()
-
-    # If the message is short (1-2 words) and doesn't match greetings/depots/numbers, treat it as a custom crop name
-    words = [w for w in re.sub(r'[^\w\s]', '', text).strip().split() if len(w) > 1]
-    if 1 <= len(words) <= 3 and not any(w.isdigit() for w in words):
-        ignored = {"salut", "bonjour", "habari", "hello", "hi", "jambo", "yes", "no", "oui", "non", "ndio", "hapana", "ok", "okay", "kitale", "goma", "bunia", "eldoret", "nakuru", "bukavu", "gisenyi", "niaje", "sasa", "vipi", "mambo"}
-        if not all(w.lower() in ignored for w in words):
-            return " ".join(words).title()
 
     return None
 
@@ -221,18 +235,27 @@ def _extract_destination_rule(text: str) -> Optional[str]:
 
 
 def _is_pure_greeting(text: str) -> bool:
-    text_clean = re.sub(r'[^\w\s]', '', text.lower()).strip()
+    if not text:
+        return True
+    text_l = text.lower().strip()
+    # If text contains numbers or digits, it is not a pure greeting
+    if any(c.isdigit() for c in text_l):
+        return False
+    # If text contains known crops, it's not a pure greeting
+    if _extract_crop_rule(text_l):
+        return False
+    
+    clean_words = [w for w in re.sub(r'[^\w\s]', '', text_l).split() if w]
+    if not clean_words:
+        return True
+        
     greetings = {
         "habari", "jambo", "hujambo", "sijambo", "mambo", "shikamoo", "karibu", "niaje", "sasa", "vipi",
-        "bonjour", "salut", "bonsoir", "coucou", "allo", "hello", "hi", "hey", "good morning",
-        "good afternoon", "good evening", "greetings"
+        "bonjour", "salut", "bonsoir", "coucou", "allo", "allô", "hello", "hi", "hey", "greetings"
     }
-    tokens = text_clean.split()
-    if not tokens:
-        return True
-    if len(tokens) <= 3 and any(t in greetings for t in tokens):
-        return True
-    return False
+    courtesy = {"le", "la", "les", "un", "une", "de", "du", "des", "je", "tu", "il", "moi", "toi", "vous", "nous", "agent", "kilimo", "kilimoagent", "bot", "assistant", "good", "morning", "afternoon", "evening", "day", "sir", "madam", "friend", "mkulima", "rafiki", "sana", "yangu", "hapa"}
+    
+    return all(w in greetings or w in courtesy for w in clean_words)
 
 
 def _rule_based_triage(
@@ -298,6 +321,8 @@ def _rule_based_triage(
         return {
             "reply": flag_check["reply"],
             "intent": "OUT_OF_SCOPE",
+            "action": flag_check.get("action", "NORMAL"),
+            "is_terminated": bool(flag_check.get("is_terminated", False)),
             "detected_language": flag_check.get("detected_lang", active_lang),
             "extracted_params": ctx,
             "missing_fields": [],
@@ -305,25 +330,21 @@ def _rule_based_triage(
             "is_ready": False
         }
     
-    # 1. Pure Greeting
-    if _is_pure_greeting(clean_msg) and not ctx.get("crop") and not ctx.get("volume_kg") and not ctx.get("origin_depot"):
+    # 1. Reset / New Request or Pure Greeting (Fresh Intake Flow)
+    if _is_reset_or_new_request(clean_msg) or _is_pure_greeting(clean_msg):
+        ctx = {"crop": None, "volume_kg": None, "origin_depot": None, "destination_preference": None}
         if active_lang == "sw":
-            reply = "Habari! Karibu KilimoAgent. Mimi ni msaidizi wako wa kilimo na usafirishaji. Ni zao gani ungependa kuuza leo (k.m. Mahindi, Maharagwe, Muhogo, Kahawa)?"
+            reply = "Habari! Karibu KilimoAgent. Mimi ni msaidizi wako wa kilimo na usafirishaji. Ni zao gani jipya ungependa kuuza au kusafirisha leo (k.m. Mahindi, Muhogo, Maharagwe, Kahawa, Nyanya)?"
         elif active_lang == "fr":
-            reply = "Bonjour et bienvenue sur KilimoAgent ! Je suis votre assistant agricole et logistique. Quelle culture souhaitez-vous vendre aujourd'hui (ex. Maïs, Manioc, Haricots, Café) ?"
+            reply = "Bonjour et bienvenue sur KilimoAgent ! Je suis votre assistant agricole et logistique. Quelle est cette récolte que vous souhaitez vendre ou expédier (ex. Maïs, Manioc, Haricots, Café, Tomates) ?"
         else:
-            reply = "Hello! Welcome to KilimoAgent. I am your agricultural intake and logistics assistant. What crop would you like to sell today (e.g. Maize, Beans, Cassava, Coffee)?"
+            reply = "Hello and welcome to KilimoAgent! I am your agricultural intake and logistics assistant. What crop harvest would you like to sell or dispatch today (e.g. Maize, Cassava, Beans, Coffee, Tomatoes)?"
         
         return {
             "reply": reply,
             "intent": "GREETING",
             "detected_language": active_lang,
-            "extracted_params": {
-                "crop": ctx.get("crop"),
-                "volume_kg": ctx.get("volume_kg"),
-                "origin_depot": ctx.get("origin_depot"),
-                "destination_preference": ctx.get("destination_preference")
-            },
+            "extracted_params": ctx,
             "missing_fields": ["crop", "volume_kg", "origin_depot", "destination_preference"],
             "genui_widgets": ["crop_selector"],
             "is_ready": False
@@ -500,6 +521,10 @@ async def run_receptionist_triage(
             "genui_widgets": [],
             "is_ready": False
         }
+
+    # Reset accumulated context on new request / fresh intake / greeting
+    if _is_reset_or_new_request(clean_msg) or _is_pure_greeting(clean_msg):
+        ctx = {"crop": None, "volume_kg": None, "origin_depot": None, "destination_preference": None}
 
     # Execute LLM triage attempt if API is configured
     prompt = (

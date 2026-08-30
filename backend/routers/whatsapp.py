@@ -10,7 +10,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from agent import process_multimodal_harvest_request, process_conversational_intake
-from receptionist_agent import run_receptionist_triage
+from receptionist_agent import run_receptionist_triage, _is_reset_or_new_request, _is_pure_greeting
 from guardrails.gemma_guard import GemmaModelArmor
 
 router = APIRouter()
@@ -316,8 +316,13 @@ async def receive_whatsapp_webhook(request: Request):
 
             detected_lang = _detect_language(body_text)
             
-            # Fetch accumulated session state
-            session_state = whatsapp_sessions.get_session(from_number)
+            # Reset session on fresh intake / restart / greeting
+            if _is_reset_or_new_request(body_text) or _is_pure_greeting(body_text):
+                whatsapp_sessions.clear_session(from_number)
+                session_state = {}
+            else:
+                session_state = whatsapp_sessions.get_session(from_number)
+
             current_params = {
                 "crop": session_state.get("crop"),
                 "volume_kg": session_state.get("volume_kg"),
@@ -505,7 +510,14 @@ async def simulate_whatsapp_interaction(
         selected_lang = language if language in ["sw", "fr", "en"] else _detect_language(combined_text)
 
         target_phone = phone_number or f"SIM-{session_id}"
-        session_state = whatsapp_sessions.get_session(target_phone)
+        
+        # Detect fresh start or new harvest request
+        if _is_reset_or_new_request(combined_text) or _is_pure_greeting(combined_text):
+            whatsapp_sessions.clear_session(target_phone)
+            session_state = {}
+        else:
+            session_state = whatsapp_sessions.get_session(target_phone)
+
         current_params = {
             "crop": (crop.strip() if crop and crop.strip() else None) or session_state.get("crop"),
             "volume_kg": vol_float or session_state.get("volume_kg"),
@@ -585,7 +597,13 @@ async def simulate_whatsapp_interaction_json(payload: WhatsAppSimulationRequest)
     aud_path = payload.audio_url if (payload.audio_url and os.path.exists(payload.audio_url)) else None
 
     target_phone = payload.phone_number or f"SIM-{session_id}"
-    session_state = whatsapp_sessions.get_session(target_phone)
+    
+    if _is_reset_or_new_request(combined_text) or _is_pure_greeting(combined_text):
+        whatsapp_sessions.clear_session(target_phone)
+        session_state = {}
+    else:
+        session_state = whatsapp_sessions.get_session(target_phone)
+
     current_params = {
         "crop": (payload.crop.strip() if payload.crop and payload.crop.strip() else None) or session_state.get("crop"),
         "volume_kg": payload.volume_kg or session_state.get("volume_kg"),
