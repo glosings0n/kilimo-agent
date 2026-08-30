@@ -49,6 +49,7 @@ export default function App() {
   const [showLiveModal, setShowLiveModal] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [inputMode, setInputMode] = useState('guided'); // 'guided' | 'quick'
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Multimodal Inputs
   const [selectedPresetId, setSelectedPresetId] = useState(null);
@@ -74,6 +75,71 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const t = translations[lang] || translations.en;
+
+  // Synchronize modal paths (/engineering, /pipeline, /architecture, /whatsapp, /live)
+  useEffect(() => {
+    const handleUrlRoute = () => {
+      const path = window.location.pathname.toLowerCase();
+      if (path.includes('/engineering') || path.includes('/pipeline') || path.includes('/architecture')) {
+        setShowArchModal(true);
+      } else if (path.includes('/whatsapp')) {
+        setShowWhatsAppModal(true);
+      } else if (path.includes('/live')) {
+        setShowLiveModal(true);
+      }
+    };
+    handleUrlRoute();
+    window.addEventListener('popstate', handleUrlRoute);
+    return () => window.removeEventListener('popstate', handleUrlRoute);
+  }, []);
+
+  const openArchModal = () => {
+    setShowArchModal(true);
+    try {
+      window.history.pushState(null, '', '/engineering');
+    } catch (e) {}
+  };
+
+  const closeArchModal = () => {
+    setShowArchModal(false);
+    try {
+      if (window.location.pathname.includes('/engineering') || window.location.pathname.includes('/pipeline') || window.location.pathname.includes('/architecture')) {
+        window.history.pushState(null, '', '/');
+      }
+    } catch (e) {}
+  };
+
+  const openWhatsAppModal = () => {
+    setShowWhatsAppModal(true);
+    try {
+      window.history.pushState(null, '', '/whatsapp');
+    } catch (e) {}
+  };
+
+  const closeWhatsAppModal = () => {
+    setShowWhatsAppModal(false);
+    try {
+      if (window.location.pathname.includes('/whatsapp')) {
+        window.history.pushState(null, '', '/');
+      }
+    } catch (e) {}
+  };
+
+  const openLiveModal = () => {
+    setShowLiveModal(true);
+    try {
+      window.history.pushState(null, '', '/live');
+    } catch (e) {}
+  };
+
+  const closeLiveModal = () => {
+    setShowLiveModal(false);
+    try {
+      if (window.location.pathname.includes('/live')) {
+        window.history.pushState(null, '', '/');
+      }
+    } catch (e) {}
+  };
 
   const handleSelectPreset = async (preset) => {
     setSelectedPresetId(preset.id);
@@ -371,7 +437,7 @@ export default function App() {
         selectedPresetId={selectedPresetId}
         onSelectPreset={handleSelectPreset}
         onNewDispatch={resetToNewDispatch}
-        onOpenArch={() => setShowArchModal(true)}
+        onOpenArch={openArchModal}
         lang={lang}
         setLang={setLang}
       />
@@ -878,7 +944,7 @@ export default function App() {
           : 'bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-6 right-4 sm:right-6'
       }`}>
         <button
-          onClick={() => setShowWhatsAppModal(true)}
+          onClick={openWhatsAppModal}
           className="relative group w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center transition-all duration-150 cursor-pointer"
           title="Open WhatsApp Field Gateway Simulator"
         >
@@ -899,7 +965,7 @@ export default function App() {
       {/* Engineering Pipeline & Architecture Modal */}
       <ArchitectureModal
         isOpen={showArchModal}
-        onClose={() => setShowArchModal(false)}
+        onClose={closeArchModal}
         backendUrl={backendUrl}
         setBackendUrl={setBackendUrl}
       />
@@ -907,7 +973,7 @@ export default function App() {
       {/* WhatsApp Simulator Modal */}
       <WhatsAppSimulatorModal
         isOpen={showWhatsAppModal}
-        onClose={() => setShowWhatsAppModal(false)}
+        onClose={closeWhatsAppModal}
         backendUrl={backendUrl}
         lang={lang}
       />
@@ -915,7 +981,7 @@ export default function App() {
       {/* Gemini Live Multimodal Modal (Voice & Video) */}
       <GeminiLiveModal
         isOpen={showLiveModal}
-        onClose={() => setShowLiveModal(false)}
+        onClose={closeLiveModal}
         lang={lang}
         backendUrl={backendUrl}
         onCommitDispatch={(liveParams) => {
