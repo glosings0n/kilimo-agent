@@ -231,6 +231,8 @@ async def live_stream_chat(payload: LiveChatRequest):
             "reply": result.get("reply", ""),
             "speech_text": result.get("reply", ""),
             "intent": result.get("intent", ""),
+            "action": result.get("action", "NORMAL"),
+            "is_terminated": bool(result.get("is_terminated", False)),
             "detected_language": result.get("detected_language", payload.lang),
             "extracted_params": result.get("extracted_params", {}),
             "missing_fields": result.get("missing_fields", []),

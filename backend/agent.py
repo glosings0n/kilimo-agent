@@ -381,6 +381,8 @@ async def process_conversational_intake(
     return {
         "reply": triage_result.get("reply", ""),
         "intent": triage_result.get("intent", ""),
+        "action": triage_result.get("action", "NORMAL"),
+        "is_terminated": triage_result.get("is_terminated", False),
         "detected_language": triage_result.get("detected_language", "en"),
         "extracted_params": extracted,
         "missing_fields": triage_result.get("missing_fields", []),

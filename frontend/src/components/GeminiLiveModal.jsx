@@ -107,6 +107,9 @@ export default function GeminiLiveModal({
     transcriptsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcripts]);
 
+  const lastSpokenAiTextRef = useRef('');
+  const lastSpokenTimeRef = useRef(0);
+
   // Start Real Microphone Capture & Continuous Speech Recognition
   const startMicrophoneAndSpeech = async () => {
     // 1. Web Speech Recognition
@@ -118,14 +121,41 @@ export default function GeminiLiveModal({
         recognition.interimResults = false;
         recognition.lang = lang === 'fr' ? 'fr-FR' : lang === 'sw' ? 'sw-TZ' : 'en-US';
 
+        recognition.onspeechstart = () => {
+          // Barge-in: Human starts speaking -> immediately cut off AI speech!
+          if (isAiSpeaking) {
+            voiceAgent.stop();
+            if (typeof window !== 'undefined' && window.speechSynthesis) {
+              window.speechSynthesis.cancel();
+            }
+            setIsAiSpeaking(false);
+          }
+        };
+
         recognition.onresult = async (event) => {
           if (isMuted) return;
           const lastResult = event.results[event.results.length - 1];
           if (lastResult.isFinal) {
             const spokenText = lastResult[0].transcript.trim();
-            if (spokenText) {
-              await handleFarmerSpeech(spokenText);
+            if (!spokenText) return;
+
+            // Anti-Echo Filter: Prevent AI speaker output from looping back through microphone
+            const timeSinceAiSpoke = Date.now() - lastSpokenTimeRef.current;
+            const lastAi = (lastSpokenAiTextRef.current || '').toLowerCase();
+            const spokenLower = spokenText.toLowerCase();
+            if (timeSinceAiSpoke < 3500 && lastAi && (lastAi.includes(spokenLower) || spokenLower.includes(lastAi.slice(0, 20)))) {
+              console.log("[Live Anti-Echo]: Ignored self-echo loopback.");
+              return;
             }
+
+            // Interrupt any lingering AI audio
+            voiceAgent.stop();
+            if (typeof window !== 'undefined' && window.speechSynthesis) {
+              window.speechSynthesis.cancel();
+            }
+            setIsAiSpeaking(false);
+
+            await handleFarmerSpeech(spokenText);
           }
         };
 
@@ -147,7 +177,7 @@ export default function GeminiLiveModal({
       }
     }
 
-    // 2. Real Web Audio API Frequency Visualizer
+    // 2. Real Web Audio API Frequency Visualizer & Vocal Energy Barge-in
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       micStreamRef.current = stream;
@@ -171,6 +201,18 @@ export default function GeminiLiveModal({
         const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
         analyserRef.current.getByteFrequencyData(dataArray);
 
+        // Vocal energy check for real-time barge-in
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        const avgEnergy = sum / dataArray.length;
+        if (avgEnergy > 45 && isAiSpeaking) {
+          voiceAgent.stop();
+          if (typeof window !== 'undefined' && window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+          }
+          setIsAiSpeaking(false);
+        }
+
         // Map frequency bins to 10 visualizer bars (percentage height 15% - 100%)
         const bars = [];
         const step = Math.floor(dataArray.length / 10) || 1;
@@ -186,7 +228,6 @@ export default function GeminiLiveModal({
       updateFrequencyBars();
     } catch (micErr) {
       console.warn("[Microphone Stream Error - Fallback to synthetic]:", micErr);
-      // Fallback synthetic wave
       const interval = setInterval(() => {
         if (!isMuted) {
           setAudioLevel(prev => prev.map(() => Math.floor(Math.random() * 60) + 20));
@@ -226,6 +267,24 @@ export default function GeminiLiveModal({
       if (response.ok) {
         const data = await response.json();
         const reply = data.reply || "Information enregistrée.";
+        const detectedLang = data.detected_language || lang;
+
+        // Check for Security Termination / Attack Detection
+        if (data.action === "TERMINATE_SESSION" || data.is_terminated) {
+          setTranscripts(prev => [
+            ...prev,
+            { sender: 'gemini', text: `🛑 ${reply}`, time: 'Live' }
+          ]);
+          setIsAiSpeaking(true);
+          voiceAgent.speak(reply, detectedLang, () => {
+            setIsAiSpeaking(false);
+            stopAllMedia();
+            setTimeout(() => {
+              onClose();
+            }, 1200);
+          });
+          return;
+        }
 
         // Update accumulated parameters
         if (data.extracted_params) {
@@ -241,9 +300,11 @@ export default function GeminiLiveModal({
           { sender: 'gemini', text: reply, time: 'Live' }
         ]);
 
-        // Speak aloud
+        // Speak aloud with anti-echo tracking
+        lastSpokenAiTextRef.current = reply;
+        lastSpokenTimeRef.current = Date.now();
         setIsAiSpeaking(true);
-        voiceAgent.speak(reply, lang, () => {
+        voiceAgent.speak(reply, detectedLang, () => {
           setIsAiSpeaking(false);
           setConnectionStatus('live');
         });
@@ -252,7 +313,6 @@ export default function GeminiLiveModal({
       }
     } catch (err) {
       console.warn("[Live Chat API Fallback]:", err);
-      // Fast fallback response
       const fallbackReply = lang === 'sw'
         ? `Nimepokea: "${spokenText}". Tafadhali taja zao, uzito wa kilo au kituo cha mavuno.`
         : lang === 'fr'
@@ -264,6 +324,8 @@ export default function GeminiLiveModal({
         { sender: 'gemini', text: fallbackReply, time: 'Live' }
       ]);
 
+      lastSpokenAiTextRef.current = fallbackReply;
+      lastSpokenTimeRef.current = Date.now();
       setIsAiSpeaking(true);
       voiceAgent.speak(fallbackReply, lang, () => {
         setIsAiSpeaking(false);

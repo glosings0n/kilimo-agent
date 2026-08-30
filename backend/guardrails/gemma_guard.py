@@ -224,6 +224,23 @@ class GemmaModelArmor:
         else:
             detected_lang = "en"
 
+        # 0. Prompt Injection / Instruction Override / Jailbreak
+        is_injection, inj_lang, _ = self.detect_prompt_injection(lower)
+        if is_injection:
+            replies = {
+                "fr": "⚠️ Tentative de contournement ou d'altération d'instructions détectée. La session a été immédiatement interrompue par les protocoles de sécurité de KilimoAgent.",
+                "sw": "⚠️ Jaribio la kubatilisha maagizo ya mfumo limetambuliwa. Kikao kimekatishwa mara moja kwa kufuata itifaki za usalama za KilimoAgent.",
+                "en": "⚠️ System override or instruction bypass attempt detected. Session terminated immediately by KilimoAgent security protocols."
+            }
+            return {
+                "is_flagged": True,
+                "category": "PROMPT_INJECTION",
+                "action": "TERMINATE_SESSION",
+                "is_terminated": True,
+                "reply": replies.get(detected_lang, replies["en"]),
+                "detected_lang": detected_lang
+            }
+
         # 1. Self-harm / suicide pattern
         self_harm_pattern = r"(?i)\b(me\s+tuer|suicide|suicider|mourir|mettre\s+fin\s+[aà]\s+mes\s+jours|kujiua|kujinyonga|kuua\s+nafsi|kill\s+myself|end\s+my\s+life|commit\s+suicide|suicidal|want\s+to\s+die)\b"
         if re.search(self_harm_pattern, lower):

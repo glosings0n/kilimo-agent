@@ -737,6 +737,34 @@ export default function MultimodalInputCapsule({
   const progressRatio = playbackDuration > 0 ? (playbackCurrentTime / playbackDuration) : 0;
   const currentActiveBarIndex = Math.floor(progressRatio * waveBarHeights.length);
 
+  const handleFullReset = () => {
+    setNotes?.("");
+    removeImage();
+    removeAudio();
+    if (setCropOverride) setCropOverride("");
+    if (setVolumeOverride) setVolumeOverride("");
+    if (setLocationOverride) setLocationOverride("");
+    if (setSelectedPresetId) setSelectedPresetId(null);
+    setIsIntakeLoading(false);
+    setForceManualText(false);
+
+    const welcomeMap = {
+      sw: "Habari! Karibu KilimoAgent. Mimi ni msaidizi wako wa kilimo na usafirishaji. Ni zao gani ungependa kuuza leo?",
+      fr: "Bonjour et bienvenue sur KilimoAgent ! Je suis votre assistant d'accueil agricole. Quelle culture souhaitez-vous vendre aujourd'hui ?",
+      en: "Hello! Welcome to KilimoAgent. I am your agricultural intake assistant. Which crop harvest would you like to sell today?"
+    };
+
+    setGenuiMessages([
+      {
+        id: 'welcome',
+        sender: 'agent',
+        text: welcomeMap[lang] || welcomeMap.en,
+        widgetType: 'crop_selector',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    ]);
+  };
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-3">
       {/* Hidden File Inputs */}
@@ -789,22 +817,12 @@ export default function MultimodalInputCapsule({
             <div className="flex items-center space-x-2">
               <button
                 type="button"
-                onClick={() => {
-                  setGenuiMessages([
-                    {
-                      id: 'welcome',
-                      sender: 'agent',
-                      text: "Hello! Which crop harvest would you like to dispatch today?",
-                      widgetType: 'crop_selector',
-                      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    }
-                  ]);
-                }}
+                onClick={handleFullReset}
                 className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition text-[11px] flex items-center space-x-1 cursor-pointer"
-                title="Reset conversation"
+                title="Reset / New Prompt"
               >
                 <RotateCcw className="w-3 h-3" />
-                <span className="hidden sm:inline">Reset</span>
+                <span className="hidden sm:inline">New Prompt</span>
               </button>
 
               <button

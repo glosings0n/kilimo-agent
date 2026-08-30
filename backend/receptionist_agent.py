@@ -492,6 +492,8 @@ async def run_receptionist_triage(
         return {
             "reply": flag_check["reply"],
             "intent": "OUT_OF_SCOPE",
+            "action": flag_check.get("action", "NORMAL"),
+            "is_terminated": bool(flag_check.get("is_terminated", False)),
             "detected_language": flag_check.get("detected_lang", active_lang),
             "extracted_params": ctx,
             "missing_fields": [],
