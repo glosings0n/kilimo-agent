@@ -66,6 +66,15 @@ function computeMultiTurnResponse(userText, state, currentLang) {
   const isSw = detectedLang === 'sw';
   const isFr = detectedLang === 'fr';
 
+  // 3. Detect depot mentions
+  let detectedDepot = state.depot;
+  const depotKeywords = ["bunia", "goma", "kitale", "eldoret", "nakuru", "bukavu", "gisenyi", "busia", "mombasa", "nairobi", "kigali", "kampala"];
+  depotKeywords.forEach((kw) => {
+    if (lower.includes(kw)) {
+      detectedDepot = kw.charAt(0).toUpperCase() + kw.slice(1) + (kw === "goma" ? " Logistics Center" : " Depot");
+    }
+  });
+
   // 1. Detect any crop mentions
   let detectedCrop = state.crop;
   if (lower.includes("maize") || lower.includes("mahindi") || lower.includes("maïs") || lower.includes("corn")) {
@@ -78,6 +87,11 @@ function computeMultiTurnResponse(userText, state, currentLang) {
     detectedCrop = "Dry Beans (Maharagwe)";
   } else if (lower.includes("tomato") || lower.includes("nyanya")) {
     detectedCrop = "Tomatoes (Nyanya)";
+  } else if (lower.includes("patate") || lower.includes("sweet potato") || lower.includes("viazi")) {
+    detectedCrop = "Sweet Potato (Patate Douce)";
+  } else if (!detectedCrop && !depotKeywords.some(kw => lower.includes(kw)) && !/^\d+/.test(lower) && !/^(salut|bonjour|habari|jambo|hello|hi|yes|oui|ndio|ok|dépôt|depot)/i.test(lower)) {
+    // Custom crop name support (e.g. "Patate Douce", "Soja", "Sorgho", "Riz", etc.)
+    detectedCrop = userText.trim();
   }
 
   // 2. Detect any volume mentions
@@ -86,20 +100,11 @@ function computeMultiTurnResponse(userText, state, currentLang) {
   if (volMatch) {
     detectedVolume = parseFloat(volMatch[1].replace(/,/g, '').trim());
   } else {
-    const numMatch = lower.match(/\b(\d{3,5})\b/);
+    const numMatch = lower.match(/\b(\d{3,6})\b/);
     if (numMatch) {
       detectedVolume = parseFloat(numMatch[1]);
     }
   }
-
-  // 3. Detect depot mentions
-  let detectedDepot = state.depot;
-  const depotKeywords = ["bunia", "goma", "kitale", "eldoret", "nakuru", "bukavu", "gisenyi"];
-  depotKeywords.forEach((kw) => {
-    if (lower.includes(kw)) {
-      detectedDepot = kw.charAt(0).toUpperCase() + kw.slice(1) + (kw === "goma" ? " Logistics Center" : " Depot");
-    }
-  });
 
   const newState = {
     ...state,
@@ -275,6 +280,14 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
           if (data.detected_language && ['fr', 'sw', 'en'].includes(data.detected_language)) {
             setSelectedLang(data.detected_language);
           }
+          if (data.extracted_params) {
+            setConvState(prev => ({
+              ...prev,
+              crop: data.extracted_params.crop || prev.crop,
+              volume: data.extracted_params.volume_kg || prev.volume,
+              depot: data.extracted_params.origin_depot || prev.depot
+            }));
+          }
           const botReply = data.whatsapp_message || data.whatsapp_response || data.response;
           if (botReply) {
             setMessages(prev => [
@@ -290,8 +303,9 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
           }
         }
       }
-      throw new Error("Local multi-turn simulation triggered");
-    } catch {
+      throw new Error("Local multi-turn fallback invoked");
+    } catch (err) {
+      console.warn("WhatsApp API Notice, executing client multi-turn handler:", err);
       setTimeout(() => {
         const { reply, newState } = computeMultiTurnResponse(textToSend, convState, activeLang);
         setConvState(newState);
