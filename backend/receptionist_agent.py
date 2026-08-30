@@ -9,6 +9,7 @@ from google.genai import types
 from google.adk import Agent, Runner
 from google.adk.sessions import InMemorySessionService
 from tools.multimodal_grading import grade_and_validate_harvest_image, validate_and_transcribe_voice_note
+from guardrails.gemma_guard import GemmaModelArmor
 
 from config.models import DEFAULT_GEMINI_MODEL as MODEL_NAME
 
@@ -26,6 +27,8 @@ try:
 except Exception:
     genai_client = genai.Client()
 
+_receptionist_armor = GemmaModelArmor()
+
 RECEPTIONIST_SYSTEM_INSTRUCTION = """
 You are KilimoAgent's Warm & Friendly Agricultural Receptionist and Intake Specialist.
 Your mission is to welcome farmers, traders, and aggregators across East and Central Africa (Kenya, DRC, Uganda, Rwanda, Tanzania), converse fluently in Swahili (Kiswahili), French (Français), or English, and triage their request by identifying the 4 essential intake variables:
@@ -35,6 +38,12 @@ Your mission is to welcome farmers, traders, and aggregators across East and Cen
 4. `destination_preference`: Destination market preference or auto-arbitrage (e.g. "auto-arbitrage", "best profit", "Nairobi", "Mombasa", "Kigali", "Kampala", "Kisumu"). If unspecified by the user, default to "auto-arbitrage".
 
 INTENT EVALUATION & GENERATIVE UI (GenUI) RULES:
+- If user input is OFF-TOPIC (unrelated to agriculture/freight/commodities), harmful, suicidal, self-harm, or illicit:
+  * intent: "OUT_OF_SCOPE"
+  * Formulate a polite refusal in the user's language clearly stating that KilimoAgent is exclusively dedicated to agricultural commodity intake, market arbitrage, and freight logistics in East and Central Africa (or giving crisis helpline advice for self-harm).
+  * genui_widgets: []
+  * is_ready: false
+
 - If user input is a GREETING or general chit-chat (e.g. "Habari", "Bonjour", "Hello", "Salut", "Jambo"):
   * intent: "GREETING"
   * Formulate a warm, welcoming greeting in the user's language explaining how KilimoAgent helps sell harvest at maximum profit with automated freight.
@@ -61,7 +70,7 @@ INTENT EVALUATION & GENERATIVE UI (GenUI) RULES:
 CRITICAL: Return valid JSON matching this schema:
 {
   "reply": "Warm conversational response or question in user's language",
-  "intent": "GREETING" | "NEEDS_CLARIFICATION" | "READY_FOR_DISPATCH",
+  "intent": "GREETING" | "NEEDS_CLARIFICATION" | "READY_FOR_DISPATCH" | "OUT_OF_SCOPE",
   "extracted_params": {
     "crop": "Maize" | null,
     "volume_kg": 2700.0 | null,
@@ -278,6 +287,19 @@ def _rule_based_triage(
             }
         else:
             clean_msg = (clean_msg + " " + aud_res.get("transcript", "")).strip()
+
+    # 0. Check for harmful, self-harm, illicit, or off-topic non-agricultural queries
+    flag_check = _receptionist_armor.detect_harmful_or_offtopic(clean_msg)
+    if flag_check.get("is_flagged"):
+        return {
+            "reply": flag_check["reply"],
+            "intent": "OUT_OF_SCOPE",
+            "detected_language": flag_check.get("detected_lang", active_lang),
+            "extracted_params": ctx,
+            "missing_fields": [],
+            "genui_widgets": [],
+            "is_ready": False
+        }
     
     # 1. Pure Greeting
     if _is_pure_greeting(clean_msg) and not ctx.get("crop") and not ctx.get("volume_kg") and not ctx.get("origin_depot"):
@@ -443,6 +465,19 @@ async def run_receptionist_triage(
             }
         else:
             clean_msg = (clean_msg + " " + aud_res.get("transcript", "")).strip()
+
+    # Pre-triage Guardrail check for harmful, self-harm, illicit, or off-topic queries
+    flag_check = _receptionist_armor.detect_harmful_or_offtopic(clean_msg)
+    if flag_check.get("is_flagged"):
+        return {
+            "reply": flag_check["reply"],
+            "intent": "OUT_OF_SCOPE",
+            "detected_language": flag_check.get("detected_lang", active_lang),
+            "extracted_params": ctx,
+            "missing_fields": [],
+            "genui_widgets": [],
+            "is_ready": False
+        }
 
     # Execute LLM triage attempt if API is configured
     prompt = (

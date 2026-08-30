@@ -528,7 +528,7 @@ export default function MultimodalInputCapsule({
           if (ext.volume_kg && setVolumeOverride) setVolumeOverride(ext.volume_kg.toString());
           if (ext.origin_depot && setLocationOverride) setLocationOverride(ext.origin_depot);
 
-          let widget = 'crop_selector';
+          let widget = null;
           if (data.genui_widgets && data.genui_widgets.length > 0) {
             const w = data.genui_widgets[0];
             if (w === 'map_picker') widget = 'depot_map_picker';
@@ -553,6 +553,42 @@ export default function MultimodalInputCapsule({
       }
 
       // Client-side deterministic fallback without calling onSubmit
+      const isSelfHarm = /(me\s+tuer|suicide|suicider|mourir|mettre\s+fin\s+[aà]\s+mes\s+jours|kujiua|kujinyonga|kuua\s+nafsi|kill\s+myself|end\s+my\s+life)/i.test(lower);
+      if (isSelfHarm) {
+        setTimeout(() => {
+          setIsIntakeLoading(false);
+          addGenUIMessage({
+            sender: 'agent',
+            text: autoLang === 'fr'
+              ? "Je suis désolé d'apprendre que vous traversez un moment difficile, mais je suis un agent d'intelligence artificielle dédié exclusivement à l'arbitrage agricole et à la logistique des récoltes (KilimoAgent). Si vous êtes en détresse ou avez besoin d'aide, veuillez contacter un proche ou un service d'écoute et d'urgence spécialisé."
+              : autoLang === 'sw'
+              ? "Pole sana kwa magumu unayopitia, lakini mimi ni wakala wa akili bandia anayehusika na biashara ya mazao ya kilimo na usafirishaji pekee (KilimoAgent). Tafadhali wasiliana na mtu wa karibu au huduma za dharura kwa usaidizi."
+              : "I am sorry that you are going through a difficult time, but I am an AI agent dedicated specifically to agricultural commodity arbitrage and harvest freight logistics (KilimoAgent). If you need help, please reach out to loved ones or a crisis support helpline.",
+            widgetType: null,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        }, 400);
+        return;
+      }
+
+      const isOffTopic = /(qui\s+est\s+(le\s+)?pr[ée]sident|capitale\s+de|m[ée]t[ée]o|blague|code\s+python|javascript|react|programme|chante|po[eè]me|recette|qui\s+t['’]a\s+cr[ée][ée]|who\s+is|tell\s+me\s+a\s+joke|write\s+code)/i.test(lower);
+      if (isOffTopic) {
+        setTimeout(() => {
+          setIsIntakeLoading(false);
+          addGenUIMessage({
+            sender: 'agent',
+            text: autoLang === 'fr'
+              ? "Cette question ne concerne pas le domaine agricole. Je suis **KilimoAgent**, votre assistant d'accueil et d'arbitrage logistique pour les récoltes en Afrique de l'Est et dans les Grands Lacs (maïs, manioc, café, haricots, etc.). Pour commencer une estimation ou une expédition, veuillez indiquer votre récolte ou votre volume."
+              : autoLang === 'sw'
+              ? "Swali hili halihusu sekta ya kilimo. Mimi ni **KilimoAgent**, msaidizi wa akili bandia wa kutafuta masoko na usafirishaji wa mazao ya kilimo (mahindi, muhogo, kahawa, maharagwe n.k.). Ili kuanza, taja zao lako au uzito wa mavuno."
+              : "This question is outside the agricultural domain. I am **KilimoAgent**, your dedicated agricultural intake and freight arbitrage assistant for East & Central Africa (maize, cassava, coffee, beans, etc.). To get started, please specify your crop or harvest volume.",
+            widgetType: null,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        }, 400);
+        return;
+      }
+
       const isGreeting = ["salut", "bonjour", "habari", "jambo", "hello", "hi", "hey"].some(g => lower.includes(g));
       
       let detectedCrop = cropOverride || null;

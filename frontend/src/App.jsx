@@ -968,6 +968,7 @@ export default function App() {
         onClose={closeArchModal}
         backendUrl={backendUrl}
         setBackendUrl={setBackendUrl}
+        lang={lang}
       />
 
       {/* WhatsApp Simulator Modal */}

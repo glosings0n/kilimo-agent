@@ -6,9 +6,12 @@ export default function ArchitectureModal({
   isOpen,
   onClose,
   backendUrl,
-  setBackendUrl
+  setBackendUrl,
+  lang = 'en'
 }) {
   if (!isOpen) return null;
+
+  const t = translations[lang] || translations.en;
 
   const handleModeChange = (mode) => {
     if (mode === 'cloudrun') {

@@ -201,6 +201,80 @@ class GemmaModelArmor:
             return True, "; ".join(reasons)
         return False, "CLEAN"
 
+    def detect_harmful_or_offtopic(self, text: str) -> Dict[str, Any]:
+        """
+        Detects self-harm, violent/illicit intent, or completely off-topic non-agricultural queries.
+        Returns: {
+            "is_flagged": bool,
+            "category": "SELF_HARM" | "ILLICIT_VIOLENCE" | "OFF_TOPIC" | "SAFE",
+            "reply": str, # Contextual refusal / redirect
+            "detected_lang": "fr" | "sw" | "en"
+        }
+        """
+        if not text:
+            return {"is_flagged": False, "category": "SAFE", "reply": "", "detected_lang": "en"}
+
+        lower = text.lower().strip()
+        
+        # Detect language
+        if re.search(r'^(salut|bonjour|bonsoir|coucou|je\s|j\'ai|comment|pourquoi|aide)\b', lower) or re.search(r'\b(tuer|mort|suicide|arme|drogue|culture|agricole|prix|qui|quoi|faire)\b', lower):
+            detected_lang = "fr"
+        elif re.search(r'^(habari|jambo|hujambo|mambo|vipi|sasa|niaje)\b', lower) or re.search(r'\b(kujiua|kufa|silaha|bangi|dawa|mazao|kilimo|nani|nini)\b', lower):
+            detected_lang = "sw"
+        else:
+            detected_lang = "en"
+
+        # 1. Self-harm / suicide pattern
+        self_harm_pattern = r"(?i)\b(me\s+tuer|suicide|suicider|mourir|mettre\s+fin\s+[aà]\s+mes\s+jours|kujiua|kujinyonga|kuua\s+nafsi|kill\s+myself|end\s+my\s+life|commit\s+suicide|suicidal|want\s+to\s+die)\b"
+        if re.search(self_harm_pattern, lower):
+            replies = {
+                "fr": "Je suis désolé d'apprendre que vous traversez un moment difficile, mais je suis un agent d'intelligence artificielle dédié exclusivement à l'arbitrage agricole et à la logistique des récoltes (KilimoAgent). Si vous êtes en détresse ou avez besoin d'aide, veuillez contacter un proche ou un service d'écoute et d'urgence spécialisé.",
+                "sw": "Pole sana kwa magumu unayopitia, lakini mimi ni wakala wa akili bandia anayehusika na biashara ya mazao ya kilimo na usafirishaji pekee (KilimoAgent). Tafadhali wasiliana na mtu wa karibu au huduma za dharura kwa usaidizi.",
+                "en": "I am sorry that you are going through a difficult time, but I am an AI agent dedicated specifically to agricultural commodity arbitrage and harvest freight logistics (KilimoAgent). If you need help, please reach out to loved ones or a crisis support helpline."
+            }
+            return {
+                "is_flagged": True,
+                "category": "SELF_HARM",
+                "reply": replies.get(detected_lang, replies["en"]),
+                "detected_lang": detected_lang
+            }
+
+        # 2. Illicit cargo / weapons / drugs / cyber attacks
+        illicit_pattern = r"(?i)\b(fabriquer\s+une\s+arme|arme\s+[aà]\s+feu|pistolet|fusil|bombe|explosif|drogue|coca[iï]ne|h[ée]ro[iï]ne|bangi|silaha|smuggle|unauthorized\s+goods|contraband|make\s+a\s+bomb|hack\s+into)\b"
+        if re.search(illicit_pattern, lower):
+            replies = {
+                "fr": "Cette demande viole nos politiques de sécurité. KilimoAgent traite exclusivement des produits agricoles licites (céréales, légumineuses, tubercules, café) et des opérations logistiques conformes aux normes de la CAE.",
+                "sw": "Ombi hili linakiuka sera zetu za usalama. KilimoAgent inashughulikia mazao halali ya kilimo (nafaka, kunde, mizizi, kahawa) na usafirishaji unaofuata sheria za EAC.",
+                "en": "This request violates safety policies. KilimoAgent operates exclusively for legal agricultural commodities (cereals, legumes, tubers, coffee) and EAC-compliant freight logistics."
+            }
+            return {
+                "is_flagged": True,
+                "category": "ILLICIT_VIOLENCE",
+                "reply": replies.get(detected_lang, replies["en"]),
+                "detected_lang": detected_lang
+            }
+
+        # 3. Off-topic questions (asking for general knowledge, coding, politics, philosophy, stories, etc.)
+        off_topic_patterns = [
+            r"(?i)\b(qui\s+est\s+(le\s+)?pr[ée]sident|capitale\s+de|m[ée]t[ée]o\s+demain|raconte(-moi)?\s+une\s+blague|histoire\s+dr[oô]le|code\s+python|javascript|react|programme(-moi)?|chante|po[eè]me|recette\s+de\s+cuisine|qui\s+t['’]a\s+cr[ée][ée]|sens\s+de\s+la\s+vie)\b",
+            r"(?i)\b(who\s+is\s+the\s+president|capital\s+of|tell\s+me\s+a\s+joke|write\s+(me\s+)?code|recipe\s+for|sing\s+a\s+song|meaning\s+of\s+life|who\s+made\s+you)\b",
+            r"(?i)\b(nani\s+ni\s+rais|mji\s+mkuu\s+wa|niambie\s+hadithi|vichekesho|andika\s+programu|maana\s+ya\s+maisha)\b"
+        ]
+        if any(re.search(pat, lower) for pat in off_topic_patterns):
+            replies = {
+                "fr": "Cette question ne concerne pas le domaine agricole. Je suis **KilimoAgent**, votre assistant d'accueil et d'arbitrage logistique pour les récoltes en Afrique de l'Est et dans les Grands Lacs (maïs, manioc, café, haricots, etc.). Pour commencer une estimation ou une expédition, veuillez indiquer votre récolte ou votre volume.",
+                "sw": "Swali hili halihusu sekta ya kilimo. Mimi ni **KilimoAgent**, msaidizi wa akili bandia wa kutafuta masoko na usafirishaji wa mazao ya kilimo (mahindi, muhogo, kahawa, maharagwe n.k.). Ili kuanza, taja zao lako au uzito wa mavuno.",
+                "en": "This question is outside the agricultural domain. I am **KilimoAgent**, your dedicated agricultural intake and freight arbitrage assistant for East & Central Africa (maize, cassava, coffee, beans, etc.). To get started, please specify your crop or harvest volume."
+            }
+            return {
+                "is_flagged": True,
+                "category": "OFF_TOPIC",
+                "reply": replies.get(detected_lang, replies["en"]),
+                "detected_lang": detected_lang
+            }
+
+        return {"is_flagged": False, "category": "SAFE", "reply": "", "detected_lang": detected_lang}
+
     def inspect_and_sanitize(
         self,
         raw_input: str,
