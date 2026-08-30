@@ -30,7 +30,7 @@ flowchart TD
     end
 
     subgraph ADK_Engine ["3. Google Agent Development Kit (ADK) Engine"]
-        AGENT["Google ADK Agent ('kilimo_dispatch_agent')\n• Model: gemini-2.5-flash / gemini-3.6-flash\n• Multi-turn Session Management via InMemorySessionService\n• Asynchronous Event-driven Execution via Runner.run_async()"]
+        AGENT["Google ADK Agent ('kilimo_dispatch_agent')\n• Model: gemini-3.6-flash\n• Multi-turn Session Management via InMemorySessionService\n• Asynchronous Event-driven Execution via Runner.run_async()"]
     end
 
     subgraph Execution ["4. Autonomous Cyber-Physical & Strategic Tools"]
@@ -95,6 +95,43 @@ flowchart TD
 * Complete integration with **Twilio WhatsApp API** (`twilio.rest.Client`).
 * Automated waybill dispatch to cooperative leaders and farmers via WhatsApp with electronic receipts and cryptographic tracking hashes (`KILIMO-WB-YYYYMMDD-<HEX>`).
 
+### 6. Gemini Live Multimodal Stream (Voice & Video Vision)
+* **Bidirectional Natural Voice Streaming:** Native real-time conversational agent supporting Swahili (`sw`), French (`fr`), and English (`en`) powered by `SpeechRecognition`, Web Audio API frequency visualizer, and low-latency TTS speech synthesis.
+* **Real-Time Live Camera Harvest Grading:** Live camera feed extraction at 1080p with Gemini Computer Vision inspection for kernel integrity, moisture percentage estimation, and EAC Grade A/B compliance.
+* **1-Click Live Handoff:** Live parameter accumulation (`crop`, `volume_kg`, `origin_depot`, `destination_preference`) with instant 1-click commit to autonomous dispatch.
+
+---
+
+## Gemini Live Multimodal Streaming Architecture
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Farmer as Farmer (Mobile / Web)
+    participant LiveUI as GeminiLiveModal (React 19)
+    participant WebAudio as Web Audio API & Speech Engine
+    participant API as KilimoAgent Backend (FastAPI)
+    participant LiveGemini as Gemini 3.6 Flash Multimodal Live
+
+    Farmer->>LiveUI: Opens Live Stream & Activates Mic / Camera
+    LiveUI->>WebAudio: Captures Audio Stream & Initializes SpeechRecognition
+    WebAudio->>LiveUI: Computes Real-Time Frequency Bars via AnalyserNode
+    Farmer->>LiveUI: Speaks: "Bonjour, j'ai 2700 kg de maïs à Kitale"
+    WebAudio->>LiveUI: Transcribes Spoken Utterance in Real-Time
+    LiveUI->>API: POST /api/v1/live/chat (Message, Accumulated State, Lang)
+    API->>LiveGemini: Multi-turn Reasoning & Parameter Extraction
+    LiveGemini-->>API: Extracted (Crop: Maize, Vol: 2700kg, Depot: Kitale) + Spoken Reply
+    API-->>LiveUI: { reply, speech_text, extracted_params, is_ready: true }
+    LiveUI->>WebAudio: Synthesizes Native Spoken Audio Response (TTS)
+    Farmer->>LiveUI: Points Camera at Maize Harvest
+    LiveUI->>API: POST /api/v1/intake/validate-multimodal (Live Frame)
+    API->>LiveGemini: Vision Kernel & Moisture Quality Analysis
+    LiveGemini-->>API: { Grade A, Moisture 12.2%, 0 Defects }
+    API-->>LiveUI: Live Quality Bounding Overlay
+    Farmer->>LiveUI: Taps "Commit Live Session"
+    LiveUI->>API: POST /api/v1/dispatch -> Autonomous Arbitrage & Waybill Lock!
+```
+
 ---
 
 ## Technology Stack
@@ -102,7 +139,7 @@ flowchart TD
 | Layer | Technologies |
 | :--- | :--- |
 | **Agent Framework** | **Google Agent Development Kit (ADK)** (`google-adk` v2.8.0) |
-| **Foundation Models** | **Gemini 2.5 Flash / Gemini 3.6 Flash** (Orchestration), **Gemma 2 9B-IT** (Model Armor Guardrail) |
+| **Foundation Models** | **Gemini 3.6 Flash** (Orchestration & Vision/Audio), **Gemma 2 9B-IT** (Model Armor Guardrail) |
 | **Grounding & Tools** | `google.adk.tools.google_search`, OSRM Geodesic Routing, EAC Regulatory RAG, SHA-256 Ledger |
 | **Cloud Infrastructure** | **Google Cloud Run** (Serverless execution), **Cloud Firestore** (State machine & Audit ledger) |
 | **Frontend App** | React 19, Vite 8, Tailwind CSS v4, Leaflet, React-Leaflet, Lucide Icons |
@@ -116,6 +153,9 @@ flowchart TD
 .
 ├── backend/
 │   ├── assets/                          # Sample voice notes (.mp4) and harvest images (.jpg)
+│   ├── config/
+│   │   ├── __init__.py
+│   │   └── models.py                    # Centralized Foundation Model configuration
 │   ├── guardrails/
 │   │   └── gemma_guard.py               # Gemma 2 Multilingual Model Armor & PII Redactor
 │   ├── routers/
@@ -142,6 +182,8 @@ flowchart TD
     │   ├── icons/                       # Vector SVGs (Gemini, WhatsApp, GitHub, etc.)
     │   └── logo.png
     ├── src/
+    │   ├── config/
+    │   │   └── models.js                # Centralized Frontend Model definitions
     │   ├── components/
     │   │   ├── ArbitrageChart.jsx           # Multi-market comparative financial breakdown
     │   │   ├── ArchitectureModal.jsx        # 5-Layer engineering architecture explorer
@@ -207,7 +249,7 @@ Create a `.env` file in the `backend/` directory:
 ```env
 GOOGLE_CLOUD_PROJECT=<YOUR_GCP_PROJECT_ID>
 GOOGLE_CLOUD_LOCATION=us-central1
-ADK_MODEL=gemini-2.5-flash
+ADK_MODEL=gemini-3.6-flash
 TWILIO_ACCOUNT_SID=<YOUR_TWILIO_ACCOUNT_SID>
 TWILIO_AUTH_TOKEN=<YOUR_TWILIO_AUTH_TOKEN>
 TWILIO_WHATSAPP_NUMBER=<YOUR_TWILIO_WHATSAPP_NUMBER>

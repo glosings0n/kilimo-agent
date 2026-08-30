@@ -6,20 +6,14 @@ export default function ArchitectureModal({
   isOpen,
   onClose,
   backendUrl,
-  setBackendUrl,
-  isSimulation,
-  setIsSimulation
+  setBackendUrl
 }) {
   if (!isOpen) return null;
 
   const handleModeChange = (mode) => {
-    if (mode === 'simulation') {
-      setIsSimulation(true);
-    } else if (mode === 'cloudrun') {
-      setIsSimulation(false);
+    if (mode === 'cloudrun') {
       setBackendUrl('https://kilimo-backend-840262173056.us-central1.run.app');
     } else if (mode === 'localhost') {
-      setIsSimulation(false);
       setBackendUrl('http://localhost:8080');
     }
   };
@@ -50,86 +44,66 @@ export default function ArchitectureModal({
             </p>
           </div>
 
-          {/* Section: Orchestration Engine Switcher */}
-          {setIsSimulation && (
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                  <Server className="w-3.5 h-3.5" />
-                  Active orchestration runtime engine
-                </span>
-                <span className="text-[10px] font-mono text-slate-400">
-                  Select execution target
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <button
-                  onClick={() => handleModeChange('simulation')}
-                  className={`text-left p-3 rounded-xl border text-xs transition cursor-pointer ${
-                    isSimulation
-                      ? 'bg-emerald-950/40 border-emerald-500 text-emerald-200 font-bold'
-                      : 'bg-slate-900/80 hover:bg-slate-800 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold flex items-center gap-1.5 text-white">
-                      <Zap className="w-3.5 h-3.5 text-amber-400" />
-                      Demo engine
-                    </span>
-                    {isSimulation && <Check className="w-3.5 h-3.5 text-emerald-400" />}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-1">
-                    Deterministic simulation
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => handleModeChange('cloudrun')}
-                  className={`text-left p-3 rounded-xl border text-xs transition cursor-pointer ${
-                    !isSimulation && backendUrl?.includes('run.app')
-                      ? 'bg-emerald-950/40 border-emerald-500 text-emerald-200 font-bold'
-                      : 'bg-slate-900/80 hover:bg-slate-800 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold flex items-center gap-1.5 text-white">
-                      <Server className="w-3.5 h-3.5 text-emerald-400" />
-                      Cloud Run (Live)
-                    </span>
-                    {!isSimulation && backendUrl?.includes('run.app') && (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-1 truncate">
-                    Production Cloud Run
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => handleModeChange('localhost')}
-                  className={`text-left p-3 rounded-xl border text-xs transition cursor-pointer ${
-                    !isSimulation && backendUrl?.includes('localhost')
-                      ? 'bg-emerald-950/40 border-emerald-500 text-emerald-200 font-bold'
-                      : 'bg-slate-900/80 hover:bg-slate-800 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold flex items-center gap-1.5 text-white">
-                      <Cpu className="w-3.5 h-3.5 text-blue-400" />
-                      Localhost (8080)
-                    </span>
-                    {!isSimulation && backendUrl?.includes('localhost') && (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-1">
-                    Local FastAPI server
-                  </div>
-                </button>
-              </div>
+          {/* Section: Live Execution Runtime Switcher */}
+          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                <Server className="w-3.5 h-3.5" />
+                Active live backend runtime engine
+              </span>
+              <span className="text-[10px] font-mono text-slate-400">
+                100% Real Google ADK Pipeline
+              </span>
             </div>
-          )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => handleModeChange('cloudrun')}
+                className={`text-left p-3 rounded-xl border text-xs transition cursor-pointer ${
+                  backendUrl?.includes('run.app')
+                    ? 'bg-emerald-950/40 border-emerald-500 text-emerald-200 font-bold'
+                    : 'bg-slate-900/80 hover:bg-slate-800 border-slate-800 text-slate-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold flex items-center gap-1.5 text-white">
+                    <Server className="w-3.5 h-3.5 text-emerald-400" />
+                    Google Cloud Run (Production)
+                  </span>
+                  {backendUrl?.includes('run.app') && (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1 truncate">
+                  https://kilimo-backend-840262173056.us-central1.run.app
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleModeChange('localhost')}
+                className={`text-left p-3 rounded-xl border text-xs transition cursor-pointer ${
+                  backendUrl?.includes('localhost')
+                    ? 'bg-emerald-950/40 border-emerald-500 text-emerald-200 font-bold'
+                    : 'bg-slate-900/80 hover:bg-slate-800 border-slate-800 text-slate-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold flex items-center gap-1.5 text-white">
+                    <Cpu className="w-3.5 h-3.5 text-blue-400" />
+                    Localhost Server (Port 8080)
+                  </span>
+                  {backendUrl?.includes('localhost') && (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  http://localhost:8080/api/v1/dispatch
+                </div>
+              </button>
+            </div>
+          </div>
 
           {/* Architecture Grid */}
           <div className="space-y-4 pt-1">

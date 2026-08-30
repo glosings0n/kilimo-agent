@@ -19,69 +19,14 @@ import {
   LocateFixed,
   Layers,
   Map,
-  X
+  X,
+  Edit3,
+  AlertCircle
 } from 'lucide-react';
 import GeminiIcon from './GeminiIcon';
 import { translations } from '../utils/translations';
 import { CountryFlag } from './Flags';
-
-const CROPS = [
-  {
-    id: "maize",
-    name: "Maize (Mahindi)",
-    scientific: "Zea mays",
-    icon: "🌽",
-    color: "bg-slate-900 border-amber-500/30 text-amber-300",
-    activeColor: "border-amber-400 bg-slate-900 ring-1 ring-amber-400 text-amber-300",
-    tags: ["Flint Grade A", "Moisture < 12.5%", "Export Spec"],
-    defaultNotes: "Nafaka zimekauka vizuri bila wadudu, tayari kwa soko.",
-    avgPrice: "$0.45/KG"
-  },
-  {
-    id: "cassava",
-    name: "Cassava (Manioc)",
-    scientific: "Manihot esculenta",
-    icon: "🥔",
-    color: "bg-slate-900 border-emerald-500/30 text-emerald-300",
-    activeColor: "border-emerald-400 bg-slate-900 ring-1 ring-emerald-400 text-emerald-300",
-    tags: ["High Starch", "Clean Root Tubers", "Industrial Spec"],
-    defaultNotes: "Racines de manioc fraîchement récoltées, haute teneur en amidon.",
-    avgPrice: "$0.29/KG"
-  },
-  {
-    id: "coffee",
-    name: "Arabica Coffee (Kahawa)",
-    scientific: "Coffea arabica",
-    icon: "☕",
-    color: "bg-slate-900 border-orange-500/30 text-orange-300",
-    activeColor: "border-orange-400 bg-slate-900 ring-1 ring-orange-400 text-orange-300",
-    tags: ["Specialty AA", "Washed Parchment", "Highland Single-Origin"],
-    defaultNotes: "Kahawa safi daraja la kwanza, unyevu 11.8%.",
-    avgPrice: "$2.80/KG"
-  },
-  {
-    id: "beans",
-    name: "Dry Beans (Maharagwe)",
-    scientific: "Phaseolus vulgaris",
-    icon: "🫘",
-    color: "bg-slate-900 border-rose-500/30 text-rose-300",
-    activeColor: "border-rose-400 bg-slate-900 ring-1 ring-rose-400 text-rose-300",
-    tags: ["Red Speckled", "Zero Weevils", "Standard 50kg Bags"],
-    defaultNotes: "Grade 1 clean dry red beans in standardized 50kg bags.",
-    avgPrice: "$0.80/KG"
-  },
-  {
-    id: "tomatoes",
-    name: "Tomatoes (Nyanya)",
-    scientific: "Solanum lypersicum",
-    icon: "🍅",
-    color: "bg-slate-900 border-red-500/30 text-red-300",
-    activeColor: "border-red-400 bg-slate-900 ring-1 ring-red-400 text-red-300",
-    tags: ["Fresh Crimson", "Firm Skin", "Cold-Chain FastTrack"],
-    defaultNotes: "Nyanya mpya za shambani zimepakiwa kwenye kreti za mbao.",
-    avgPrice: "$0.90/KG"
-  }
-];
+import { getCropsCatalog } from './GenUIWidgets';
 
 const VOLUME_PRESETS = [500, 1000, 2700, 5000, 10000];
 
@@ -166,15 +111,20 @@ export default function HarvestCardStack({
   setAudioPresetUrl,
   loading,
   onSubmit,
-  lang = 'en'
+  lang = 'en',
+  backendUrl = ''
 }) {
+  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   const [currentStep, setCurrentStep] = useState(1);
   const [isGpsLocating, setIsGpsLocating] = useState(false);
   const [gpsStatus, setGpsStatus] = useState(null);
   const [showCustomCropDialog, setShowCustomCropDialog] = useState(false);
   const [customCropInput, setCustomCropInput] = useState("");
+  const [showCustomDepotDialog, setShowCustomDepotDialog] = useState(false);
+  const [customDepotInput, setCustomDepotInput] = useState("");
   const [isImageValidating, setIsImageValidating] = useState(false);
   const [imageValidationError, setImageValidationError] = useState(null);
+  const cropsCatalogList = useMemo(() => getCropsCatalog(lang), [lang]);
 
   const validateImage = async (file) => {
     setIsImageValidating(true);
@@ -184,7 +134,8 @@ export default function HarvestCardStack({
       formData.append('image', file);
       if (cropOverride) formData.append('crop', cropOverride);
       
-      const res = await fetch('http://localhost:8000/api/v1/intake/validate-multimodal', {
+      const effectiveBackend = backendUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+      const res = await fetch(`${effectiveBackend}/api/v1/intake/validate-multimodal`, {
         method: 'POST',
         body: formData
       });
@@ -216,7 +167,8 @@ export default function HarvestCardStack({
       formData.append('audio', file);
       formData.append('lang', lang);
       
-      const res = await fetch('http://localhost:8000/api/v1/intake/validate-multimodal', {
+      const effectiveBackend = backendUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+      const res = await fetch(`${effectiveBackend}/api/v1/intake/validate-multimodal`, {
         method: 'POST',
         body: formData
       });
@@ -238,21 +190,21 @@ export default function HarvestCardStack({
   };
 
   // Selected crop entity
-  const selectedCropObj = CROPS.find(c => 
+  const selectedCropObj = cropsCatalogList.find(c => 
     c.name.toLowerCase().includes(cropOverride?.toLowerCase() || "") ||
     cropOverride?.toLowerCase().includes(c.id)
-  ) || CROPS[0];
+  ) || cropsCatalogList[0];
 
   const currentVolume = parseFloat(volumeOverride) || 2700;
   const bagCount = Math.ceil(currentVolume / 50);
 
-  // Step names
+  // Step names with dynamic translations
   const steps = [
-    { num: 1, title: "Crop & Commodity", icon: Wheat },
-    { num: 2, title: "Volume & Lot Size", icon: Scale },
-    { num: 3, title: "Origin Depot", icon: MapPin },
-    { num: 4, title: "Multimodal Quality", icon: GeminiIcon },
-    { num: 5, title: "Executive Review", icon: ShieldCheck }
+    { num: 1, title: lang === 'sw' ? "Zao la Kilimo" : lang === 'fr' ? "Récolte & Culture" : "Crop & Commodity", icon: Wheat },
+    { num: 2, title: lang === 'sw' ? "Uzito wa Mzigo" : lang === 'fr' ? "Volume & Poids" : "Volume & Lot Size", icon: Scale },
+    { num: 3, title: lang === 'sw' ? "Kituo cha Asili" : lang === 'fr' ? "Dépôt d'Origine" : "Origin Depot", icon: MapPin },
+    { num: 4, title: lang === 'sw' ? "Ubora & Picha" : lang === 'fr' ? "Qualité & Média" : "Multimodal Quality", icon: GeminiIcon },
+    { num: 5, title: lang === 'sw' ? "Uthibitisho" : lang === 'fr' ? "Revue & Lancement" : "Executive Review", icon: ShieldCheck }
   ];
 
   const handleSelectCrop = (crop) => {
@@ -396,7 +348,7 @@ export default function HarvestCardStack({
 
             {/* Crop Card Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {CROPS.map((crop) => {
+              {cropsCatalogList.map((crop) => {
                 const isSelected = (cropOverride || "Maize (Mahindi)").toLowerCase().includes(crop.id) ||
                   (cropOverride || "").toLowerCase().includes(crop.name.toLowerCase());
 
@@ -406,14 +358,14 @@ export default function HarvestCardStack({
                     onClick={() => handleSelectCrop(crop)}
                     className={`p-4 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between space-y-3 ${
                       isSelected
-                        ? `${crop.activeColor} `
+                        ? 'border-emerald-400 bg-slate-900 ring-1 ring-emerald-400 text-emerald-300'
                         : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-3xl">{crop.icon}</span>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 border border-slate-800 text-emerald-400 font-mono">
-                        {crop.avgPrice}
+                        {crop.priceFormatted}
                       </span>
                     </div>
 
@@ -443,11 +395,11 @@ export default function HarvestCardStack({
               {/* 6th Card: Custom / Other Harvest Commodity */}
               <div
                 onClick={() => {
-                  setCustomCropInput(!CROPS.some(c => (cropOverride || '').toLowerCase().includes(c.id)) ? cropOverride || "" : "");
+                  setCustomCropInput(!cropsCatalogList.some(c => (cropOverride || '').toLowerCase().includes(c.id)) ? cropOverride || "" : "");
                   setShowCustomCropDialog(true);
                 }}
                 className={`p-4 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between space-y-3 ${
-                  !CROPS.some(c => (cropOverride || '').toLowerCase().includes(c.id)) && cropOverride
+                  !cropsCatalogList.some(c => (cropOverride || '').toLowerCase().includes(c.id)) && cropOverride
                     ? 'bg-slate-900 border-amber-400 ring-1 ring-amber-400 '
                     : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
                 }`}
@@ -724,6 +676,41 @@ export default function HarvestCardStack({
                   </div>
                 );
               })}
+
+              {/* Custom Transit Depot Card */}
+              <div
+                onClick={() => {
+                  setCustomDepotInput(!DEPOTS.some(d => (locationOverride || '').toLowerCase().includes(d.id)) ? locationOverride || "" : "");
+                  setShowCustomDepotDialog(true);
+                }}
+                className={`p-4 rounded-2xl border transition-all duration-200 cursor-pointer flex items-center justify-between ${
+                  !DEPOTS.some(d => (locationOverride || '').toLowerCase().includes(d.id)) && locationOverride
+                    ? 'bg-slate-900 border-amber-400 ring-2 ring-amber-400'
+                    : 'bg-slate-950 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">➕</span>
+                  <div>
+                    <h4 className="font-extrabold text-white text-sm">
+                      {lang === 'sw' ? "Kituo / Ghala Maalum" : lang === 'fr' ? "Point de Transit / Dépôt Personnalisé" : "Custom Transit Depot"}
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      {lang === 'sw' ? "Weka kituo chako cha makusanyo" : lang === 'fr' ? "Spécifiez votre point de collecte" : "Specify your custom collection hub"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                  !DEPOTS.some(d => (locationOverride || '').toLowerCase().includes(d.id)) && locationOverride
+                    ? 'border-amber-400 bg-amber-400 text-slate-950'
+                    : 'border-slate-700 bg-slate-900'
+                }`}>
+                  {!DEPOTS.some(d => (locationOverride || '').toLowerCase().includes(d.id)) && locationOverride && (
+                    <CheckCircle2 className="w-3.5 h-3.5 fill-current" />
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -994,23 +981,33 @@ export default function HarvestCardStack({
               </div>
             </div>
 
-            {/* Launch Agent Action Bar */}
-            <div className="pt-2">
+            {/* Launch Agent Action Bar & Edit Button */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(1)}
+                disabled={loading}
+                className="w-full sm:w-auto px-5 py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm transition flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                <Edit3 className="w-4 h-4 text-slate-400" />
+                <span>{t.editParams || "Modifier les Données"}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={onSubmit}
                 disabled={loading}
-                className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-base tracking-wide transition-all duration-150 flex items-center justify-center space-x-3 cursor-pointer"
+                className="flex-1 w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-base tracking-wide transition-all duration-150 flex items-center justify-center space-x-3 cursor-pointer"
               >
                 {loading ? (
                   <>
                     <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>Executing Dual-Model Pipeline...</span>
+                    <span>{t.executingPipeline || "Executing Dual-Model Pipeline..."}</span>
                   </>
                 ) : (
                   <>
                     <Zap className="w-5 h-5 fill-current" />
-                    <span>Launch Kilimo Agent</span>
+                    <span>{t.launchAgentLabel || "Launch Kilimo Agent"}</span>
                     <ArrowRight className="w-5 h-5" />
                   </>
                 )}
@@ -1032,11 +1029,11 @@ export default function HarvestCardStack({
             }`}
           >
             <ChevronLeft className="w-4 h-4" />
-            <span>Previous</span>
+            <span>{lang === 'sw' ? "Nyuma" : lang === 'fr' ? "Précédent" : "Previous"}</span>
           </button>
 
           <div className="text-xs text-slate-500 font-bold">
-            Step {currentStep} of 5
+            {lang === 'sw' ? `Hatua ya ${currentStep} kati ya 5` : lang === 'fr' ? `Étape ${currentStep} sur 5` : `Step ${currentStep} of 5`}
           </div>
 
           {currentStep < 5 ? (
@@ -1046,7 +1043,7 @@ export default function HarvestCardStack({
               disabled={!canProceed()}
               className="flex items-center space-x-1.5 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition cursor-pointer active:scale-95"
             >
-              <span>Next Step</span>
+              <span>{lang === 'sw' ? "Hatua Inayofuata" : lang === 'fr' ? "Étape Suivante" : "Next Step"}</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           ) : (
@@ -1058,7 +1055,7 @@ export default function HarvestCardStack({
       {/* Custom Crop Dialog Modal */}
       {showCustomCropDialog && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-[#0F172A] border border-slate-800 rounded-3xl max-w-md w-full p-6  space-y-4 animate-in zoom-in-95 duration-150">
+          <div className="bg-[#0F172A] border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
@@ -1150,6 +1147,109 @@ export default function HarvestCardStack({
                 className="px-5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-30 disabled:cursor-not-allowed text-slate-950 text-xs font-black transition cursor-pointer"
               >
                 {lang === 'sw' ? "Thibitisha Zao" : lang === 'fr' ? "Confirmer la Culture" : "Confirm Crop"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Depot Dialog Modal */}
+      {showCustomDepotDialog && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-[#0F172A] border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+                  <MapPin className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-white">
+                    {lang === 'sw' ? "Weka Kituo cha Makusanyo / Ghala" : lang === 'fr' ? "Saisir un Point de Transit / Dépôt" : "Enter Custom Depot or Transit Hub"}
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    {lang === 'sw' ? "Bainisha kituo chako cha makusanyo" : lang === 'fr' ? "Précisez votre point d'enlèvement" : "Specify your harvest collection location"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomDepotDialog(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
+                  {lang === 'sw' ? "Jina la Kituo / Mahali :" : lang === 'fr' ? "Nom du Dépôt / Lieu :" : "Depot / Hub Name:"}
+                </label>
+                <input
+                  type="text"
+                  value={customDepotInput}
+                  onChange={(e) => setCustomDepotInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && customDepotInput.trim()) {
+                      setLocationOverride(customDepotInput.trim());
+                      setShowCustomDepotDialog(false);
+                      setCurrentStep(4);
+                    }
+                  }}
+                  placeholder={lang === 'sw' ? "k.m. Butembo Hub, Beni Silos, Kisangani Port..." : lang === 'fr' ? "ex. Butembo Hub, Silos de Beni, Port de Kisangani..." : "e.g. Butembo Hub, Beni Silos, Kisangani Port..."}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm font-bold text-emerald-300 focus:outline-none focus:border-emerald-400"
+                  autoFocus
+                />
+              </div>
+
+              {/* Quick Preset Pills */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] text-slate-500 font-bold uppercase">
+                  {lang === 'sw' ? "Mifano ya Vituo vya Kanda:" : lang === 'fr' ? "Suggestions de points de transit :" : "Regional Transit Hubs:"}
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "Butembo Trading Hub",
+                    "Beni Silos Center",
+                    "Kisumu Port Depot",
+                    "Mwanza Port Terminal",
+                    "Busia Border Market",
+                    "Isiro Cooperative Depot"
+                  ].map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setCustomDepotInput(item)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-emerald-400/50 text-[11px] font-bold text-slate-300 hover:text-emerald-300 transition cursor-pointer"
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowCustomDepotDialog(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                {lang === 'sw' ? "Ghairi" : lang === 'fr' ? "Annuler" : "Cancel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (customDepotInput.trim()) {
+                    setLocationOverride(customDepotInput.trim());
+                    setShowCustomDepotDialog(false);
+                    setCurrentStep(4);
+                  }
+                }}
+                disabled={!customDepotInput.trim()}
+                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed text-slate-950 text-xs font-black transition cursor-pointer"
+              >
+                {lang === 'sw' ? "Thibitisha Kituo" : lang === 'fr' ? "Confirmer le Dépôt" : "Confirm Depot"}
               </button>
             </div>
           </div>

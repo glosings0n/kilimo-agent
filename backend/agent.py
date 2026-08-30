@@ -24,9 +24,10 @@ from state.firestore_manager import KilimoStateManager
 from guardrails.gemma_guard import GemmaModelArmor
 from receptionist_agent import run_receptionist_triage, kilimo_receptionist_agent
 
+from config.models import DEFAULT_GEMINI_MODEL as MODEL_NAME
+
 load_dotenv()
 
-MODEL_NAME = os.getenv("ADK_MODEL", "gemini-2.5-flash")
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "kilimoagent")
 LOCATION = os.getenv("GEMINI_LOCATION", os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
 

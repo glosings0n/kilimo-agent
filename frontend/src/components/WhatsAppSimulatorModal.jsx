@@ -52,8 +52,19 @@ function formatWhatsAppMarkdown(text) {
 
 function computeMultiTurnResponse(userText, state, currentLang) {
   const lower = userText.toLowerCase().trim();
-  const isSw = currentLang === 'sw';
-  const isFr = currentLang === 'fr';
+
+  // Dynamic language detection from first word or text
+  let detectedLang = currentLang;
+  if (/^(salut|bonjour|bonsoir|coucou|je\s|j'ai|vendre)\b/i.test(lower) || /\b(manioc|haricot|maïs|sacs?|récolte|prix)\b/i.test(lower)) {
+    detectedLang = 'fr';
+  } else if (/^(habari|jambo|hujambo|sijambo|mambo|niaje|sasa|karibu)\b/i.test(lower) || /\b(mahindi|muhogo|maharagwe|nyanya|magunia|kilo)\b/i.test(lower)) {
+    detectedLang = 'sw';
+  } else if (/^(hello|hi|hey|good\s+morning|good\s+afternoon)\b/i.test(lower)) {
+    detectedLang = 'en';
+  }
+
+  const isSw = detectedLang === 'sw';
+  const isFr = detectedLang === 'fr';
 
   // 1. Detect any crop mentions
   let detectedCrop = state.crop;
@@ -233,12 +244,26 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
     setLoading(true);
     setMessageText('');
 
+    // Dynamic language detection from first word or text
+    let activeLang = selectedLang;
+    const lower = textToSend.toLowerCase();
+    if (/^(salut|bonjour|bonsoir|coucou|je\s|j'ai|vendre)\b/i.test(lower) || /\b(manioc|haricot|maïs|sacs?|récolte|prix)\b/i.test(lower)) {
+      activeLang = 'fr';
+      setSelectedLang('fr');
+    } else if (/^(habari|jambo|hujambo|sijambo|mambo|niaje|sasa|karibu)\b/i.test(lower) || /\b(mahindi|muhogo|maharagwe|nyanya|magunia|kilo)\b/i.test(lower)) {
+      activeLang = 'sw';
+      setSelectedLang('sw');
+    } else if (/^(hello|hi|hey|good\s+morning|good\s+afternoon)\b/i.test(lower)) {
+      activeLang = 'en';
+      setSelectedLang('en');
+    }
+
     try {
       if (backendUrl && backendUrl.startsWith("http")) {
         const formData = new FormData();
         formData.append('phone_number', phoneNumber);
         formData.append('message_text', textToSend);
-        formData.append('language', selectedLang);
+        formData.append('language', activeLang);
 
         const res = await fetch(`${backendUrl}/api/v1/whatsapp/simulate`, {
           method: 'POST',
@@ -247,6 +272,9 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
 
         if (res.ok) {
           const data = await res.json();
+          if (data.detected_language && ['fr', 'sw', 'en'].includes(data.detected_language)) {
+            setSelectedLang(data.detected_language);
+          }
           const botReply = data.whatsapp_message || data.whatsapp_response || data.response;
           if (botReply) {
             setMessages(prev => [
@@ -265,7 +293,7 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
       throw new Error("Local multi-turn simulation triggered");
     } catch {
       setTimeout(() => {
-        const { reply, newState } = computeMultiTurnResponse(textToSend, convState, selectedLang);
+        const { reply, newState } = computeMultiTurnResponse(textToSend, convState, activeLang);
         setConvState(newState);
         setMessages(prev => [
           ...prev,

@@ -10,9 +10,10 @@ from google.adk import Agent, Runner
 from google.adk.sessions import InMemorySessionService
 from tools.multimodal_grading import grade_and_validate_harvest_image, validate_and_transcribe_voice_note
 
+from config.models import DEFAULT_GEMINI_MODEL as MODEL_NAME
+
 load_dotenv()
 
-MODEL_NAME = os.getenv("ADK_MODEL", "gemini-2.5-flash")
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "kilimoagent")
 LOCATION = os.getenv("GEMINI_LOCATION", os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
 
@@ -159,8 +160,10 @@ def _extract_crop_rule(text: str) -> Optional[str]:
 def _extract_volume_rule(text: str) -> Optional[float]:
     text_l = text.lower().replace(",", "")
     
-    # Check for bags (e.g. 50 bags, 30 magunia, 10 sacs) -> standard 90kg bag
+    # Check for bags (e.g. 50 bags, 30 magunia, 10 sacs, magunia 50, sacs 10) -> standard 90kg bag
     bag_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:magunia|gunia|bags?|sacs?|sac)\b', text_l)
+    if not bag_match:
+        bag_match = re.search(r'(?:magunia|gunia|bags?|sacs?|sac)\s*(\d+(?:\.\d+)?)', text_l)
     if bag_match:
         bags = float(bag_match.group(1))
         return bags * 90.0
@@ -473,6 +476,18 @@ async def run_receptionist_triage(
             for k in ["crop", "volume_kg", "origin_depot", "destination_preference"]:
                 if not extracted.get(k) and ctx.get(k):
                     extracted[k] = ctx[k]
+            
+            # Canonicalize crop name if known synonym
+            raw_c = str(extracted.get("crop") or "").lower().strip()
+            canonical_map = {
+                "manioc": "Cassava", "muhogo": "Cassava", "cassava": "Cassava",
+                "mahindi": "Maize", "mais": "Maize", "maïs": "Maize", "corn": "Maize", "maize": "Maize",
+                "maharagwe": "Beans", "haricot": "Beans", "haricots": "Beans", "beans": "Beans",
+                "kahawa": "Coffee", "café": "Coffee", "coffee": "Coffee",
+                "nyanya": "Tomatoes", "tomates": "Tomatoes", "tomatoes": "Tomatoes"
+            }
+            if raw_c in canonical_map:
+                extracted["crop"] = canonical_map[raw_c]
             
             missing = []
             if not extracted.get("crop"): missing.append("crop")

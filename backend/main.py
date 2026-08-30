@@ -113,6 +113,64 @@ async def validate_multimodal(
         
     return result
 
+
+class LiveChatRequest(BaseModel):
+    session_id: Optional[str] = "live_session_1"
+    user_id: Optional[str] = "live_farmer"
+    message: str
+    current_params: Optional[Dict[str, Any]] = None
+    lang: Optional[str] = "en"
+
+
+@app.get("/api/v1/live/config")
+def get_live_config():
+    """Returns Gemini Live connection parameters, supported modalities, and model config."""
+    from config.models import MODEL_CONFIG
+    return {
+        "status": "ONLINE",
+        "live_model": MODEL_CONFIG["live_model"],
+        "supported_modalities": ["audio/pcm", "image/jpeg", "text/plain"],
+        "supported_languages": ["fr", "sw", "en"],
+        "features": {
+            "bidirectional_voice": True,
+            "realtime_vision_grading": True,
+            "instant_arbitrage_handoff": True
+        }
+    }
+
+
+@app.post("/api/v1/live/chat")
+async def live_stream_chat(payload: LiveChatRequest):
+    """
+    Bidirectional Live Streaming Chat Endpoint:
+    Processes live conversational voice transcriptions and provides low-latency
+    natural spoken responses and parameter extractions for Gemini Live.
+    """
+    try:
+        result = await process_conversational_intake(
+            user_id=payload.user_id or "live_farmer",
+            session_id=payload.session_id or "live_session",
+            message=payload.message,
+            current_params=payload.current_params or {},
+            preferred_language=payload.lang or "en",
+            execute_on_ready=False
+        )
+        return {
+            "success": True,
+            "session_id": payload.session_id,
+            "reply": result.get("reply", ""),
+            "speech_text": result.get("reply", ""),
+            "intent": result.get("intent", ""),
+            "detected_language": result.get("detected_language", payload.lang),
+            "extracted_params": result.get("extracted_params", {}),
+            "missing_fields": result.get("missing_fields", []),
+            "genui_widgets": result.get("genui_widgets", []),
+            "is_ready": result.get("is_ready", False)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/v1/dispatch")
 async def trigger_harvest_dispatch(
     farmer_id: Optional[str] = Form(None),

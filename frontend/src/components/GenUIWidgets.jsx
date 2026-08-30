@@ -36,7 +36,63 @@ export const REGIONAL_DEPOTS = [
   { id: "gisenyi", name: "Gisenyi Border Station", region: "Rubavu District, Rwanda", country: "Rwanda", flag: "🇷🇼", coords: [-1.7028, 29.2564] }
 ];
 
-// Crop Catalog Configuration
+// Crop Catalog Configuration with Dynamic Translation
+export function getCropsCatalog(lang = 'en') {
+  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
+  return [
+    {
+      id: "maize",
+      name: t.cropMaizeName || "Maize (Mahindi)",
+      scientific: "Zea mays",
+      icon: "🌽",
+      pricePerKg: 0.45,
+      priceFormatted: "$0.45/KG",
+      tags: [t.tagFlintA || "Flint Grade A", t.tagMoisture || "Moisture < 12.5%", t.tagExport || "Export Spec"],
+      defaultNotes: "Nafaka zimekauka vizuri bila wadudu, tayari kwa soko."
+    },
+    {
+      id: "cassava",
+      name: t.cropCassavaName || "Cassava (Manioc)",
+      scientific: "Manihot esculenta",
+      icon: "🥔",
+      pricePerKg: 0.29,
+      priceFormatted: "$0.29/KG",
+      tags: [t.tagHighStarch || "High Starch", t.tagCleanRoots || "Clean Root Tubers", t.tagIndustrial || "Industrial Spec"],
+      defaultNotes: "Racines de manioc fraîchement récoltées, haute teneur en amidon."
+    },
+    {
+      id: "coffee",
+      name: t.cropCoffeeName || "Arabica Coffee (Kahawa)",
+      scientific: "Coffea arabica",
+      icon: "☕",
+      pricePerKg: 2.80,
+      priceFormatted: "$2.80/KG",
+      tags: [t.tagSpecialtyAA || "Specialty AA", t.tagWashed || "Washed Parchment", t.tagHighland || "Highland Single-Origin"],
+      defaultNotes: "Kahawa safi daraja la kwanza, unyevu 11.8%."
+    },
+    {
+      id: "beans",
+      name: t.cropBeansName || "Dry Beans (Maharagwe)",
+      scientific: "Phaseolus vulgaris",
+      icon: "🫘",
+      pricePerKg: 0.80,
+      priceFormatted: "$0.80/KG",
+      tags: [t.tagRedSpeckled || "Red Speckled", t.tagZeroWeevils || "Zero Weevils", t.tagBags50 || "Standard 50kg Bags"],
+      defaultNotes: "Grade 1 clean dry red beans in standardized 50kg bags."
+    },
+    {
+      id: "tomatoes",
+      name: t.cropTomatoesName || "Tomatoes (Nyanya)",
+      scientific: "Solanum lycopersicum",
+      icon: "🍅",
+      pricePerKg: 0.90,
+      priceFormatted: "$0.90/KG",
+      tags: [t.tagFreshCrimson || "Fresh Crimson", t.tagFirmSkin || "Firm Skin", t.tagColdChain || "Cold-Chain FastTrack"],
+      defaultNotes: "Nyanya mpya za shambani zimepakiwa kwenye kreti za mbao."
+    }
+  ];
+}
+
 export const CROPS_CATALOG = [
   {
     id: "maize",
@@ -150,10 +206,13 @@ function createFlatDepotIcon(depot, isSelected) {
  */
 export function GenUIDepotMapPicker({ onSelectDepot, selectedDepot = "Bunia Depot", lang = 'en' }) {
   const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
+  const [isCustomDepotOpen, setIsCustomDepotOpen] = useState(false);
+  const [customDepotName, setCustomDepotName] = useState("");
+
   const currentDepotObj = REGIONAL_DEPOTS.find(d =>
     d.name.toLowerCase().includes((selectedDepot || "").toLowerCase()) ||
     (selectedDepot || "").toLowerCase().includes(d.id)
-  ) || REGIONAL_DEPOTS[0];
+  ) || { name: selectedDepot || "Custom Depot", country: "Transit", coords: [0.0, 32.0] };
 
   return (
     <div className="w-full bg-[#0F172A] border border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-3">
@@ -169,20 +228,20 @@ export function GenUIDepotMapPicker({ onSelectDepot, selectedDepot = "Bunia Depo
               <GeminiIcon className="w-3 h-3 text-emerald-400" />
             </h4>
             <p className="text-[10px] text-slate-400">
-              Select your agricultural collection hub in East Africa
+              {t.clickToSelectDepot || "Select your agricultural collection hub in East Africa"}
             </p>
           </div>
         </div>
-        <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-700 text-emerald-400 text-[10px] font-mono font-bold flex items-center space-x-1.5">
-          <CountryFlag country={currentDepotObj.country} className="w-4 h-3 rounded-xs" />
-          <span>{currentDepotObj.name}</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-700 text-emerald-400 text-[10px] font-mono font-bold flex items-center space-x-1.5 truncate max-w-[160px]">
+          <CountryFlag country={currentDepotObj.country} className="w-4 h-3 rounded-xs shrink-0" />
+          <span className="truncate">{currentDepotObj.name}</span>
         </span>
       </div>
 
       {/* Mini Leaflet Dark Map */}
       <div className="h-44 sm:h-52 w-full rounded-xl overflow-hidden border border-slate-800 bg-[#090D16] relative z-0">
         <MapContainer
-          center={currentDepotObj.coords}
+          center={currentDepotObj.coords || [1.5667, 30.2500]}
           zoom={6}
           scrollWheelZoom={false}
           className="w-full h-full"
@@ -193,7 +252,7 @@ export function GenUIDepotMapPicker({ onSelectDepot, selectedDepot = "Bunia Depo
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             maxZoom={18}
           />
-          <MapViewController centerCoords={currentDepotObj.coords} />
+          <MapViewController centerCoords={currentDepotObj.coords || [1.5667, 30.2500]} />
 
           {REGIONAL_DEPOTS.map((depot) => {
             const isSelected = (selectedDepot || "").toLowerCase().includes(depot.id) ||
@@ -205,7 +264,10 @@ export function GenUIDepotMapPicker({ onSelectDepot, selectedDepot = "Bunia Depo
                 position={depot.coords}
                 icon={createFlatDepotIcon(depot, isSelected)}
                 eventHandlers={{
-                  click: () => onSelectDepot && onSelectDepot(depot.name)
+                  click: () => {
+                    setIsCustomDepotOpen(false);
+                    onSelectDepot && onSelectDepot(depot.name);
+                  }
                 }}
               >
                 <Popup className="dark-leaflet-popup">
@@ -217,7 +279,10 @@ export function GenUIDepotMapPicker({ onSelectDepot, selectedDepot = "Bunia Depo
                     <p className="text-[10px] text-slate-400 mt-0.5">{depot.region}</p>
                     <button
                       type="button"
-                      onClick={() => onSelectDepot && onSelectDepot(depot.name)}
+                      onClick={() => {
+                        setIsCustomDepotOpen(false);
+                        onSelectDepot && onSelectDepot(depot.name);
+                      }}
                       className="mt-2 w-full py-1 rounded-lg bg-emerald-500 text-slate-950 font-extrabold text-[10px] hover:bg-emerald-400 transition cursor-pointer"
                     >
                       {isSelected ? "Current Selection" : "Set Depot"}
@@ -230,11 +295,53 @@ export function GenUIDepotMapPicker({ onSelectDepot, selectedDepot = "Bunia Depo
         </MapContainer>
       </div>
 
-      {/* Quick Pill Selector Below Map */}
-      <div className="space-y-1.5">
-        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-          Quick Depot Pills:
-        </span>
+      {/* Quick Pill Selector Below Map + Custom Depot Button */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+            {lang === 'fr' ? "Dépôts Régionaux & Points de Transit :" : lang === 'sw' ? "Vituo vya Makusanyo vya Kanda :" : "Regional Depots & Transit Hubs:"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setIsCustomDepotOpen(!isCustomDepotOpen)}
+            className="text-[10px] text-amber-400 hover:text-amber-300 font-bold flex items-center space-x-1 cursor-pointer"
+          >
+            <span>➕</span>
+            <span>{t.customDepotTitle || "Custom Depot"}</span>
+          </button>
+        </div>
+
+        {isCustomDepotOpen && (
+          <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-500/40 flex items-center gap-2 animate-in fade-in duration-150">
+            <input
+              type="text"
+              value={customDepotName}
+              onChange={(e) => setCustomDepotName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && customDepotName.trim()) {
+                  onSelectDepot && onSelectDepot(customDepotName.trim());
+                  setIsCustomDepotOpen(false);
+                }
+              }}
+              placeholder={t.customDepotPlaceholder || "e.g. Butembo Hub, Beni Silos..."}
+              className="flex-1 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (customDepotName.trim()) {
+                  onSelectDepot && onSelectDepot(customDepotName.trim());
+                  setIsCustomDepotOpen(false);
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition cursor-pointer shrink-0"
+            >
+              {t.addCustomDepot || "Set"}
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-1.5">
           {REGIONAL_DEPOTS.map((depot) => {
             const isSelected = (selectedDepot || "").toLowerCase().includes(depot.id) ||
@@ -244,7 +351,10 @@ export function GenUIDepotMapPicker({ onSelectDepot, selectedDepot = "Bunia Depo
               <button
                 key={depot.id}
                 type="button"
-                onClick={() => onSelectDepot && onSelectDepot(depot.name)}
+                onClick={() => {
+                  setIsCustomDepotOpen(false);
+                  onSelectDepot && onSelectDepot(depot.name);
+                }}
                 className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                   isSelected
                     ? 'bg-emerald-500 text-slate-950 border border-emerald-400'
@@ -264,14 +374,15 @@ export function GenUIDepotMapPicker({ onSelectDepot, selectedDepot = "Bunia Depo
 
 /**
  * 2. GenUICropSelector
- * Interactive flat cards for Maize, Cassava, Coffee, Beans, Tomatoes + 6th Custom Crop option.
+ * Interactive flat cards for Maize, Cassava, Coffee, Beans, Tomatoes + 6th Custom Crop option with 100% dynamic i18n.
  */
 export function GenUICropSelector({ onSelectCrop, selectedCrop = "Maize (Mahindi)", lang = 'en' }) {
   const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
   const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [customCropName, setCustomCropName] = useState("");
+  const cropsList = getCropsCatalog(lang);
 
-  const isPredefinedSelected = CROPS_CATALOG.some(crop =>
+  const isPredefinedSelected = cropsList.some(crop =>
     (selectedCrop || "").toLowerCase().includes(crop.id) ||
     (selectedCrop || "").toLowerCase().includes(crop.name.toLowerCase())
   );
@@ -298,7 +409,7 @@ export function GenUICropSelector({ onSelectCrop, selectedCrop = "Maize (Mahindi
 
       {/* Grid of Flat Crop Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        {CROPS_CATALOG.map((crop) => {
+        {cropsList.map((crop) => {
           const isSelected = (selectedCrop || "").toLowerCase().includes(crop.id) ||
             (selectedCrop || "").toLowerCase().includes(crop.name.toLowerCase());
 
@@ -327,12 +438,12 @@ export function GenUICropSelector({ onSelectCrop, selectedCrop = "Maize (Mahindi
                     {crop.scientific}
                   </p>
                   <div className="flex flex-wrap gap-1 mt-1">
-                    {crop.tags.slice(0, 2).map((t, idx) => (
+                    {crop.tags.slice(0, 2).map((tg, idx) => (
                       <span
                         key={idx}
                         className="px-1.5 py-0.2 rounded bg-slate-900 text-slate-400 border border-slate-800 text-[9px] font-mono"
                       >
-                        {t}
+                        {tg}
                       </span>
                     ))}
                   </div>
@@ -832,6 +943,7 @@ export function GenUIAudioRecordCard({
 export function GenUIDispatchConfirmation({
   params = {},
   onConfirm,
+  onEditParams,
   loading = false,
   lang = 'en'
 }) {
@@ -859,12 +971,12 @@ export function GenUIDispatchConfirmation({
               <GeminiIcon className="w-3.5 h-3.5 text-emerald-400" />
             </h4>
             <p className="text-[11px] text-slate-400">
-              Verified autonomous parameters ready for multi-hub arbitrage execution
+              {t.readyForLaunchSub || "Verified autonomous parameters ready for multi-hub arbitrage execution"}
             </p>
           </div>
         </div>
         <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-bold">
-          READY FOR LAUNCH
+          {t.readyForLaunch || "READY FOR LAUNCH"}
         </span>
       </div>
 
@@ -891,7 +1003,7 @@ export function GenUIDispatchConfirmation({
           <div className="text-xs sm:text-sm font-extrabold text-cyan-300 mt-0.5 truncate">
             {origin}
           </div>
-          <div className="text-[9px] text-slate-400">Great Lakes Corridor</div>
+          <div className="text-[9px] text-slate-400">{t.greatLakesCorridor || "Great Lakes Corridor"}</div>
         </div>
 
         <div className="p-2.5 rounded-xl bg-slate-950 border border-emerald-500/40">
@@ -903,26 +1015,38 @@ export function GenUIDispatchConfirmation({
         </div>
       </div>
 
-      {/* Solid Emerald Launch Button (No gradients, no glow) */}
-      <button
-        type="button"
-        onClick={() => onConfirm && onConfirm(params)}
-        disabled={loading}
-        className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm tracking-wide transition-all duration-150 flex items-center justify-center space-x-2.5 cursor-pointer shadow-none"
-      >
-        {loading ? (
-          <>
-            <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-            <span>{t.executingPipeline}</span>
-          </>
-        ) : (
-          <>
-            <span>🚀</span>
-            <span>{t.launchAgentLabel}</span>
-            <ArrowRight className="w-4 h-4 text-slate-950" />
-          </>
+      {/* Action Buttons: Edit Parameters + Launch */}
+      <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-1">
+        {onEditParams && (
+          <button
+            type="button"
+            onClick={onEditParams}
+            disabled={loading}
+            className="w-full sm:w-auto px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold transition flex items-center justify-center space-x-2 cursor-pointer"
+          >
+            <span>{t.editParams || "Edit Parameters"}</span>
+          </button>
         )}
-      </button>
+
+        <button
+          type="button"
+          onClick={() => onConfirm && onConfirm(params)}
+          disabled={loading}
+          className="flex-1 w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm tracking-wide transition-all duration-150 flex items-center justify-center space-x-2.5 cursor-pointer shadow-none"
+        >
+          {loading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+              <span>{t.executingPipeline}</span>
+            </>
+          ) : (
+            <>
+              <span>{t.launchAgentLabel}</span>
+              <ArrowRight className="w-4 h-4 text-slate-950" />
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }

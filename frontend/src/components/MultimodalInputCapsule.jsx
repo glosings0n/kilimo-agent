@@ -437,6 +437,26 @@ export default function MultimodalInputCapsule({
     if (e) e.preventDefault();
     if (loading || isIntakeLoading) return;
 
+    // If input text is empty but an interactive GenUI widget is waiting, auto-select the on-screen choice
+    if ((!notes || notes.trim().length === 0) && isWaitingInteractiveChoice) {
+      if (latestAgentMsg.widgetType === 'crop_selector') {
+        handleGenUISelectCrop(cropOverride || "Maize (Mahindi)");
+        return;
+      }
+      if (latestAgentMsg.widgetType === 'volume_picker') {
+        handleGenUISelectVolume(parseFloat(volumeOverride) || 2700);
+        return;
+      }
+      if (latestAgentMsg.widgetType === 'depot_map_picker') {
+        handleGenUISelectDepot(locationOverride || "Bunia Depot");
+        return;
+      }
+      if (latestAgentMsg.widgetType === 'dispatch_confirmation') {
+        if (onSubmit) onSubmit();
+        return;
+      }
+    }
+
     if (notes && notes.trim().length > 0) {
       const userText = notes.trim();
       setNotes?.("");
@@ -448,25 +468,26 @@ export default function MultimodalInputCapsule({
       let autoLang = lang;
       if (
         /^(salut|bonjour|bonsoir|coucou|allo|allô|bienvenue|je\s|j'ai|combien|merci|vente|recolte|récolte|culture|dépôt|depot)/i.test(lower) ||
-        /\b(bonjour|salut|merci|manioc|mais|maïs|haricots|haricot|recolte|récolte|prix|dépôt|depot|tonnes|kilos|transport)\b/i.test(lower)
+        /\b(bonjour|salut|merci|récolte|recolte|mais|maïs|manioc|café|haricots|tomates|tonne|tonnes|kilos|dépôt|depot|prix|marche|marché)\b/i.test(lower)
       ) {
         autoLang = 'fr';
       } else if (
-        /^(habari|jambo|hujambo|sijambo|mambo|niaje|ni\s*aje|sasa|vipi|shikamoo|karibu|nataka|nina|asante)/i.test(lower) ||
-        /\b(habari|jambo|asante|mahindi|gunia|magunia|muhogo|nyanya|maharagwe|bei|kituo|soko|shamba|ghala|usafiri|kuuza)\b/i.test(lower)
+        /^(habari|jambo|hujambo|mambo|shikamoo|hodi|kwa|asante|nataka|nani|wapi|bei|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia)/i.test(lower) ||
+        /\b(habari|jambo|karibu|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari|kilo)\b/i.test(lower)
       ) {
         autoLang = 'sw';
       } else if (
-        /^(hello|hi|hey|good morning|good afternoon|good evening|i have|i want|greetings)/i.test(lower) ||
-        /\b(hello|maize|beans|cassava|coffee|price|transport|harvest|depot|sell)\b/i.test(lower)
+        /^(hello|hi|hey|good\s|morning|evening|afternoon|i\s|how\s|what\s|price|market|maize|corn|cassava|coffee|beans|tomatoes|depot)/i.test(lower) ||
+        /\b(hello|hi|hey|maize|corn|cassava|coffee|beans|tomatoes|bags|tons|tonnes|depot|market|freight|dispatch)\b/i.test(lower)
       ) {
         autoLang = 'en';
       }
 
-      if (autoLang && setLang) {
+      if (autoLang !== lang && setLang) {
         setLang(autoLang);
       }
 
+      // Add user message in UI immediately
       const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       addGenUIMessage({
         sender: 'user',
@@ -474,29 +495,31 @@ export default function MultimodalInputCapsule({
         time: currentTime
       });
 
-      // Prepare accumulated state
-      const currentParams = {
-        crop: cropOverride || null,
-        volume_kg: volumeOverride ? parseFloat(volumeOverride) : null,
-        origin_depot: locationOverride || null
-      };
-
-      // Call Backend Receptionist API
+      // 2. Call Multi-Agent Receptionist Endpoint
       try {
-        const response = await fetch(`${backendUrl || "https://kilimo-backend-840262173056.us-central1.run.app"}/api/v1/intake/chat`, {
+        const effectiveBackend = backendUrl || (window.location.hostname.includes('run.app')
+          ? 'https://kilimo-backend-840262173056.us-central1.run.app'
+          : 'http://localhost:8000');
+
+        const res = await fetch(`${effectiveBackend}/api/v1/intake/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            user_id: farmerId || 'farmer_guest',
+            session_id: 'session_web_chat',
             message: userText,
-            current_params: currentParams,
-            lang: autoLang,
-            execute_on_ready: false
+            preferred_language: autoLang,
+            current_params: {
+              crop: cropOverride,
+              volume: volumeOverride,
+              origin: locationOverride
+            }
           })
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.detected_language && setLang) {
+        if (res.ok) {
+          const data = await res.json();
+          if (data.detected_language && ['en', 'fr', 'sw'].includes(data.detected_language) && setLang) {
             setLang(data.detected_language);
           }
 
@@ -584,10 +607,10 @@ export default function MultimodalInputCapsule({
           addGenUIMessage({
             sender: 'agent',
             text: autoLang === 'sw'
-              ? `Safi sana! Umechagua ${detectedCrop}. Tafadhali taja namba halisi ya uzito kwa kilo (k.m. 2000, 4500, 5000 kg).`
+              ? `Vizuri! Tumetambua ${detectedCrop}. Una uzito wa kilo ngapi tayari kwa usafirishaji?`
               : autoLang === 'fr'
-              ? `Parfait ! Vous avez sélectionné ${detectedCrop}. Veuillez indiquer un chiffre précis pour la quantité en kg (ex: 2000, 4500, 5000).`
-              : `Great! You selected ${detectedCrop}. Please provide a numeric volume in KG (e.g. 2000, 4500, 5000).`,
+              ? `Parfait ! Nous avons identifié votre récolte de ${detectedCrop}. Quel est le volume en KG disponible ?`
+              : `Great! We identified ${detectedCrop}. What lot volume in kg do you have available?`,
             widgetType: 'volume_picker',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           });
@@ -595,7 +618,7 @@ export default function MultimodalInputCapsule({
           addGenUIMessage({
             sender: 'agent',
             text: autoLang === 'sw'
-              ? `Tumerekodi ${detectedCrop} (${detectedVol.toLocaleString()} KG). Mzigo wako upo kwenye kituo gani cha makusanyo?`
+              ? `Tumerekodi ${detectedCrop} (${detectedVol.toLocaleString()} KG). Mzigo wako upo kwenye ghala gani?`
               : autoLang === 'fr'
               ? `Enregistré : ${detectedCrop} (${detectedVol.toLocaleString()} KG). Dans quel dépôt de collecte se trouve votre cargaison ?`
               : `Noted: ${detectedCrop} (${detectedVol.toLocaleString()} KG). Which regional collection depot is your cargo at?`,
@@ -619,10 +642,11 @@ export default function MultimodalInputCapsule({
     }
   };
 
+  const isGenUIActive = showGenUIStream && genuiMessages.length > 1;
   const hasValidInput = Boolean(
-    (notes && notes.trim().length > 0) || audioName || audioFile || audioPresetUrl || cropOverride || volumeOverride || locationOverride
+    (notes && notes.trim().length > 0) || audioName || audioFile || audioPresetUrl || cropOverride || volumeOverride || locationOverride || isWaitingInteractiveChoice
   );
-  const canSubmit = !loading && (hasValidInput || showGenUIStream) && !isRecording;
+  const canSubmit = !loading && (hasValidInput || isWaitingInteractiveChoice) && !isRecording;
 
   const formatTimer = (sec) => {
     const totalSec = Math.max(0, Math.floor(sec || 0));
@@ -802,6 +826,7 @@ export default function MultimodalInputCapsule({
                           origin: locationOverride || "Bunia Depot"
                         }}
                         onConfirm={() => onSubmit && onSubmit()}
+                        onEditParams={() => setForceManualText(true)}
                         loading={loading}
                         lang={lang}
                       />
@@ -976,7 +1001,7 @@ export default function MultimodalInputCapsule({
               </button>
             </div>
           ) : isWaitingInteractiveChoice ? (
-            /* State 3A: Interactive GenUI Step Guidance (No generic textarea to avoid confusion) */
+            /* State 3A: Interactive GenUI Step Guidance */
             <div className="w-full py-2.5 px-3.5 rounded-2xl bg-slate-950/90 border border-emerald-500/40 flex items-center space-x-2.5 animate-in fade-in duration-200">
               <GeminiIcon className="w-4 h-4 text-emerald-400 shrink-0" />
               <span className="text-xs font-bold text-emerald-300 truncate">
@@ -986,7 +1011,7 @@ export default function MultimodalInputCapsule({
                   ? (t.chooseVolumeAbove || "⚖️ Select your volume from the presets above")
                   : latestAgentMsg.widgetType === 'depot_map_picker'
                   ? (t.tapDepotOnMap || "🗺️ Click your collection depot on the map above")
-                  : (t.confirmDispatchAbove || "🚀 Click Launch Kilimo Agent above")}
+                  : (t.confirmDispatchAbove || "Click Launch Kilimo Agent above")}
               </span>
             </div>
           ) : (
@@ -1024,59 +1049,61 @@ export default function MultimodalInputCapsule({
         <div className="flex items-center justify-between pt-1 border-t border-slate-800">
           {/* Left: Attachment & GenUI Triggers */}
           <div className="flex items-center space-x-2">
-            <div ref={attachMenuRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setShowAttachMenu(!showAttachMenu)}
-                className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition cursor-pointer"
-                title="Attach media or options"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
+            {!isGenUIActive && (
+              <div ref={attachMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowAttachMenu(!showAttachMenu)}
+                  className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition cursor-pointer"
+                  title="Attach media or options"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
 
-              {showAttachMenu && (
-                <div className="absolute bottom-12 left-0 w-56 bg-slate-900 border border-slate-800 rounded-2xl  p-1.5 space-y-1 z-30 animate-in fade-in slide-in-from-bottom-2 duration-150">
-                  <button
-                    type="button"
-                    onClick={() => fileImageInputRef.current?.click()}
-                    className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition text-left cursor-pointer"
-                  >
-                    <ImageIcon className="w-4 h-4 text-emerald-400" />
-                    <span className="font-bold">Attach crop photo</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileAudioInputRef.current?.click()}
-                    className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition text-left cursor-pointer"
-                  >
-                    <FileAudio className="w-4 h-4 text-amber-400" />
-                    <span className="font-bold">Attach voice note</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAttachMenu(false);
-                      setShowGenUIStream(true);
-                    }}
-                    className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition text-left cursor-pointer border-t border-slate-800 pt-2"
-                  >
-                    <Bot className="w-4 h-4 text-emerald-400" />
-                    <span className="font-bold">Open GenUI Receptionist</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAttachMenu(false);
-                      setShowAdvanced(!showAdvanced);
-                    }}
-                    className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition text-left cursor-pointer border-t border-slate-800 pt-2"
-                  >
-                    <Sliders className="w-4 h-4 text-cyan-400" />
-                    <span className="font-bold">Advanced parameters</span>
-                  </button>
-                </div>
-              )}
-            </div>
+                {showAttachMenu && (
+                  <div className="absolute bottom-12 left-0 w-56 bg-slate-900 border border-slate-800 rounded-2xl  p-1.5 space-y-1 z-30 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                    <button
+                      type="button"
+                      onClick={() => fileImageInputRef.current?.click()}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition text-left cursor-pointer"
+                    >
+                      <ImageIcon className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold">Attach crop photo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileAudioInputRef.current?.click()}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition text-left cursor-pointer"
+                    >
+                      <FileAudio className="w-4 h-4 text-amber-400" />
+                      <span className="font-bold">Attach voice note</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenu(false);
+                        setShowGenUIStream(true);
+                      }}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition text-left cursor-pointer border-t border-slate-800 pt-2"
+                    >
+                      <Bot className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold">Open GenUI Receptionist</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenu(false);
+                        setShowAdvanced(!showAdvanced);
+                      }}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition text-left cursor-pointer border-t border-slate-800 pt-2"
+                    >
+                      <Sliders className="w-4 h-4 text-cyan-400" />
+                      <span className="font-bold">Advanced parameters</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* GenUI Assistant Toggle Chip */}
             <button
@@ -1089,63 +1116,67 @@ export default function MultimodalInputCapsule({
               }`}
             >
               <GeminiIcon className="w-3.5 h-3.5" />
-              <span>{showGenUIStream ? 'Hide GenUI' : 'GenUI Guide'}</span>
+              <span>{showGenUIStream ? (lang === 'fr' ? 'Masquer GenUI' : lang === 'sw' ? 'Ficha GenUI' : 'Hide GenUI') : 'GenUI Guide'}</span>
             </button>
           </div>
 
           {/* Right Action Cluster */}
           <div className="flex items-center space-x-2 sm:space-x-3">
-            {/* Model Selector Pill */}
-            <div ref={modelMenuRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setShowModelMenu(!showModelMenu)}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-300 transition cursor-pointer"
-              >
-                <span>Model</span>
-                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${showModelMenu ? 'rotate-180' : ''}`} />
-              </button>
-
-              {showModelMenu && (
-                <div className="absolute bottom-10 right-0 w-48 bg-slate-900 border border-slate-800 rounded-2xl  p-1.5 z-30 text-xs animate-in fade-in slide-in-from-bottom-1 duration-150">
+            {!isGenUIActive && (
+              <>
+                {/* Model Selector Pill */}
+                <div ref={modelMenuRef} className="relative">
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedModel('Flash');
-                      setShowModelMenu(false);
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-xl text-white font-bold bg-emerald-500/20 text-emerald-300 flex items-center justify-between cursor-pointer"
+                    onClick={() => setShowModelMenu(!showModelMenu)}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-300 transition cursor-pointer"
                   >
-                    <span>Gemini 3.6 Flash</span>
-                    <span className="text-[9px] font-mono text-emerald-400">Active</span>
+                    <span>Model</span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${showModelMenu ? 'rotate-180' : ''}`} />
                   </button>
+
+                  {showModelMenu && (
+                    <div className="absolute bottom-10 right-0 w-48 bg-slate-900 border border-slate-800 rounded-2xl  p-1.5 z-30 text-xs animate-in fade-in slide-in-from-bottom-1 duration-150">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedModel('Flash');
+                          setShowModelMenu(false);
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-xl text-white font-bold bg-emerald-500/20 text-emerald-300 flex items-center justify-between cursor-pointer"
+                      >
+                        <span>Gemini 3.6 Flash</span>
+                        <span className="text-[9px] font-mono text-emerald-400">Active</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Mic Button */}
-            <button
-              type="button"
-              onClick={toggleRecording}
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition cursor-pointer ${
-                isRecording
-                  ? 'bg-rose-500 text-white animate-pulse'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800'
-              }`}
-              title={isRecording ? "Stop recording" : "Record voice note"}
-            >
-              {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            </button>
+                {/* Mic Button */}
+                <button
+                  type="button"
+                  onClick={toggleRecording}
+                  className={`w-9 h-9 rounded-full flex items-center justify-center transition cursor-pointer ${
+                    isRecording
+                      ? 'bg-rose-500 text-white animate-pulse'
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800'
+                  }`}
+                  title={isRecording ? "Stop recording" : "Record voice note"}
+                >
+                  {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
 
-            {/* Red Live Button */}
-            <button
-              type="button"
-              onClick={onOpenLive}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/40 text-rose-300 text-xs font-extrabold transition cursor-pointer"
-            >
-              <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
-              <span>{t.liveBadge}</span>
-            </button>
+                {/* Red Live Button */}
+                <button
+                  type="button"
+                  onClick={onOpenLive}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/40 text-rose-300 text-xs font-extrabold transition cursor-pointer"
+                >
+                  <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                  <span>{t.liveBadge}</span>
+                </button>
+              </>
+            )}
 
             {/* Send / Run Button */}
             <button

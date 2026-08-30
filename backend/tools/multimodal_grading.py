@@ -3,8 +3,8 @@ import json
 from google import genai
 from google.genai import types
 from typing import Dict, Any
+from config.models import DEFAULT_GEMINI_MODEL as MODEL_NAME
 
-MODEL_NAME = os.getenv("ADK_MODEL", "gemini-2.5-flash")
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "kilimoagent")
 LOCATION = os.getenv("GEMINI_LOCATION", os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
 

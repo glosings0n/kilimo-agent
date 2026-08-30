@@ -63,7 +63,7 @@ export const translations = {
     apiEndpointLabel: "Backend Server:",
     apiCloudRun: "Google Cloud Run (Live)",
     apiLocalhost: "Localhost (Port 8080)",
-    apiSimulation: "Gemini Simulation Engine (Zero Latency)",
+    apiSimulation: "Google ADK Live Enterprise Engine",
 
     // Pipeline Steps
     pipelineTitle: "Autonomous Execution Architecture",
@@ -216,6 +216,38 @@ export const translations = {
     imgRejected: "Image rejected: Not an agricultural crop. Please upload a clear photo of your harvest",
     audioRejected: "Audio rejected: Inaudible or silent audio.",
 
+    // Custom Depot & Edit
+    customDepotTitle: "Custom / Other Transit Depot",
+    customDepotDesc: "Enter any regional collection depot, silo, or transit point",
+    customDepotPlaceholder: "e.g. Butembo Trading Hub, Beni Silos, Kisumu Depot...",
+    addCustomDepot: "Add Transit Depot",
+    editParams: "Edit Parameters",
+    readyForLaunch: "READY FOR LAUNCH",
+    readyForLaunchSub: "Verified autonomous parameters ready for multi-hub arbitrage execution",
+    greatLakesCorridor: "Great Lakes Agro Corridor",
+    initialGreeting: "Hello! Which crop harvest would you like to dispatch today?",
+
+    // Crop Catalog Localized
+    cropMaizeName: "Maize (Mahindi)",
+    cropCassavaName: "Cassava (Manioc)",
+    cropCoffeeName: "Arabica Coffee (Kahawa)",
+    cropBeansName: "Dry Beans (Maharagwe)",
+    cropTomatoesName: "Tomatoes (Nyanya)",
+    tagFlintA: "Flint Grade A",
+    tagMoisture: "Moisture < 12.5%",
+    tagExport: "Export Spec",
+    tagHighStarch: "High Starch",
+    tagCleanRoots: "Clean Root Tubers",
+    tagIndustrial: "Industrial Spec",
+    tagSpecialtyAA: "Specialty AA",
+    tagWashed: "Washed Parchment",
+    tagHighland: "Highland Single-Origin",
+    tagRedSpeckled: "Red Speckled",
+    tagZeroWeevils: "Zero Weevils",
+    tagBags50: "Standard 50kg Bags",
+    tagFreshCrimson: "Fresh Crimson",
+    tagFirmSkin: "Firm Skin",
+    tagColdChain: "Cold-Chain FastTrack"
   },
 
   fr: {
@@ -282,7 +314,7 @@ export const translations = {
     apiEndpointLabel: "Serveur Backend :",
     apiCloudRun: "Google Cloud Run (Direct)",
     apiLocalhost: "Localhost (Port 8080)",
-    apiSimulation: "Moteur Gemini Simulation (Zéro Latence)",
+    apiSimulation: "Moteur Google ADK Live Production",
 
     // Pipeline Steps
     pipelineTitle: "Architecture d'Exécution Autonome",
@@ -435,6 +467,38 @@ export const translations = {
     imgRejected: "Image rejetée : Ce n'est pas une culture agricole. Veuillez télécharger une photo claire de votre récolte.",
     audioRejected: "Audio rejeté : Audio inaudible ou silencieux.",
 
+    // Custom Depot & Edit
+    customDepotTitle: "Point de Transit / Dépôt Personnalisé",
+    customDepotDesc: "Saisissez un point de collecte, coopérative ou silo régional",
+    customDepotPlaceholder: "ex: Dépôt Coopérative Butembo, Silo Beni, Hub Kisumu...",
+    addCustomDepot: "Ajouter ce Dépôt",
+    editParams: "Modifier les Données",
+    readyForLaunch: "PRÊT POUR LE LANCEMENT",
+    readyForLaunchSub: "Paramètres autonomes vérifiés prêts pour l'arbitrage multi-marchés",
+    greatLakesCorridor: "Couloir Agricole des Grands Lacs",
+    initialGreeting: "Bonjour ! Quelle récolte souhaitez-vous expédier aujourd'hui ?",
+
+    // Crop Catalog Localized
+    cropMaizeName: "Maïs (Mahindi)",
+    cropCassavaName: "Manioc (Tubercule)",
+    cropCoffeeName: "Café Arabica",
+    cropBeansName: "Haricots Secs",
+    cropTomatoesName: "Tomates Fraîches",
+    tagFlintA: "Silex Grade A",
+    tagMoisture: "Humidité < 12.5%",
+    tagExport: "Norme Export EAC",
+    tagHighStarch: "Haute Teneur en Amidon",
+    tagCleanRoots: "Tubercules Racines Propres",
+    tagIndustrial: "Norme Industrielle",
+    tagSpecialtyAA: "Spécialité AA Lavé",
+    tagWashed: "Parche Lavée",
+    tagHighland: "Haute Altitude Origine Unique",
+    tagRedSpeckled: "Moucheté Rouge",
+    tagZeroWeevils: "Zéro Charançons",
+    tagBags50: "Sacs Standard 50kg",
+    tagFreshCrimson: "Rouge Pourpre Frais",
+    tagFirmSkin: "Peau Ferme",
+    tagColdChain: "Chaîne du Froid Express"
   },
 
   sw: {
@@ -501,7 +565,7 @@ export const translations = {
     apiEndpointLabel: "Seva ya Mfumo:",
     apiCloudRun: "Google Cloud Run (Moja kwa Moja)",
     apiLocalhost: "Seva ya Ndani (Port 8080)",
-    apiSimulation: "Mwigaji wa Gemini (Haraka Bila Mtandao)",
+    apiSimulation: "Injini ya Google ADK Moja kwa Moja",
 
     // Pipeline Steps
     pipelineTitle: "Mlolongo wa Utekelezaji wa AI",
@@ -653,6 +717,39 @@ export const translations = {
     camError: "Haiwezekani kufikia kamera. Angalia ruhusa za kivinjari chako.",
     imgRejected: "Picha imekataliwa: Sio zao la kilimo. Tafadhali pakia picha wazi ya mazao yako.",
     audioRejected: "Sauti imekataliwa: Sauti haisikiki au kimya.",
+
+    // Custom Depot & Edit
+    customDepotTitle: "Kituo cha Makusanyo / Ghala Maalum",
+    customDepotDesc: "Ingiza kituo chochote cha makusanyo, ghala au kituo cha mpito",
+    customDepotPlaceholder: "k.m. Ghala la Butembo, Silo za Beni, Ghala la Kisumu...",
+    addCustomDepot: "Ongeza Ghala Hili",
+    editParams: "Badilisha Vigezo",
+    readyForLaunch: "TAYARI KUZINDULIWA",
+    readyForLaunchSub: "Vigezo vimethibitishwa tayari kwa uchambuzi wa masoko na usafiri",
+    greatLakesCorridor: "Ukanda wa Kilimo wa Maziwa Makuu",
+    initialGreeting: "Habari! Ni zao gani la kilimo ungependa kusafirisha leo?",
+
+    // Crop Catalog Localized
+    cropMaizeName: "Mahindi (Maize)",
+    cropCassavaName: "Mihogo (Cassava)",
+    cropCoffeeName: "Kahawa ya Arabica",
+    cropBeansName: "Maharagwe Makavu",
+    cropTomatoesName: "Nyanya Mbichi",
+    tagFlintA: "Nafaka Daraja A",
+    tagMoisture: "Unyevu < 12.5%",
+    tagExport: "Kiwango cha Kimataifa",
+    tagHighStarch: "Wanga Mwingi",
+    tagCleanRoots: "Mizizi Safi",
+    tagIndustrial: "Kiwango cha Viwanda",
+    tagSpecialtyAA: "Daraja Maalum AA",
+    tagWashed: "Kahawa Iliyooshwa",
+    tagHighland: "Kutoka Milimani",
+    tagRedSpeckled: "Madoadoa Mekundu",
+    tagZeroWeevils: "Bila Wadudu",
+    tagBags50: "Magunia ya 50kg",
+    tagFreshCrimson: "Nyekundu Safi",
+    tagFirmSkin: "Ngozi Ngumu",
+    tagColdChain: "Usafiri wa Baridi",
 
   }
 };

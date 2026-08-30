@@ -44,7 +44,6 @@ const DEFAULT_API_BASE = "https://kilimo-backend-840262173056.us-central1.run.ap
 export default function App() {
   const [lang, setLang] = useState('en');
   const [backendUrl, setBackendUrl] = useState(DEFAULT_API_BASE);
-  const [isSimulation, setIsSimulation] = useState(false);
   const [showArchModal, setShowArchModal] = useState(false);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [showLiveModal, setShowLiveModal] = useState(false);
@@ -58,48 +57,64 @@ export default function App() {
   const [imagePreview, setImagePreview] = useState(null);
   const [audioPresetUrl, setAudioPresetUrl] = useState(null);
   const [audioName, setAudioName] = useState(null);
-
-  // Advanced Overrides (Optional)
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [notes, setNotes] = useState("");
   const [farmerId, setFarmerId] = useState("");
   const [cropOverride, setCropOverride] = useState("");
   const [volumeOverride, setVolumeOverride] = useState("");
   const [locationOverride, setLocationOverride] = useState("");
-  const [notes, setNotes] = useState("");
 
   // Pipeline Execution State
   const [loading, setLoading] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
+  const [hasExecuted, setHasExecuted] = useState(false);
   const [error, setError] = useState(null);
+  const [activeResultTab, setActiveResultTab] = useState('report'); // 'report' | 'arbitrage' | 'map' | 'ledger'
   const [rawReport, setRawReport] = useState(null);
   const [parsedData, setParsedData] = useState(null);
-  const [hasExecuted, setHasExecuted] = useState(false);
-  const [activeTab, setActiveTab] = useState('arbitrage');
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const t = translations[lang] || translations.en;
 
-  const handleSelectPreset = (preset) => {
+  const handleSelectPreset = async (preset) => {
     setSelectedPresetId(preset.id);
     setImagePreview(preset.imagePath);
     setAudioPresetUrl(preset.audioPath);
     setAudioName(preset.audioName);
-    setImageFile(null);
-    setAudioFile(null);
     setFarmerId(preset.farmerId);
-    // Enforce exclusivity: if preset has voice recording, text is empty; otherwise text is used
+    setCropOverride(preset.crop || "");
+    setVolumeOverride(preset.volumeKg ? String(preset.volumeKg) : "");
+    setLocationOverride(preset.location || "");
     setNotes(preset.audioPath ? "" : (preset.notes || ""));
-    setCropOverride("");
-    setVolumeOverride("");
-    setLocationOverride("");
     setError(null);
+    setHasExecuted(false);
+    setRawReport(null);
+    setParsedData(null);
 
-    // Pre-populate parsed state
-    const parsed = parseExecutionLedger(preset.simulationLedger, {
-      farmerId: preset.farmerId
-    });
-    setRawReport(preset.simulationLedger);
-    setParsedData(parsed);
+    // Fetch actual image file blob if available
+    if (preset.imagePath) {
+      try {
+        const imgRes = await fetch(preset.imagePath);
+        if (imgRes.ok) {
+          const blob = await imgRes.blob();
+          setImageFile(new File([blob], preset.imageName || "sample_harvest.jpg", { type: blob.type || "image/jpeg" }));
+        }
+      } catch (e) {
+        console.warn("Could not fetch preset image blob:", e);
+      }
+    }
+
+    // Fetch actual audio file blob if available
+    if (preset.audioPath) {
+      try {
+        const audRes = await fetch(preset.audioPath);
+        if (audRes.ok) {
+          const blob = await audRes.blob();
+          setAudioFile(new File([blob], preset.audioName || "sample_voice.mp4", { type: blob.type || "audio/mp4" }));
+        }
+      } catch (e) {
+        console.warn("Could not fetch preset audio blob:", e);
+      }
+    }
   };
 
   const handleNotesChange = (text) => {
@@ -109,38 +124,31 @@ export default function App() {
     }
   };
 
-  // Auto-dismiss error alert after 5 seconds
+  // Auto-dismiss error alert after 6 seconds
   useEffect(() => {
     if (error) {
       const timer = setTimeout(() => {
         setError(null);
-      }, 5000);
+      }, 6000);
       return () => clearTimeout(timer);
     }
   }, [error]);
 
-  const simulateStepProgression = async () => {
-    for (let step = 1; step <= 6; step++) {
-      setActiveStep(step);
-      await new Promise(r => setTimeout(r, 450));
-    }
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e, overrides = null) => {
     if (e) e.preventDefault();
 
-    const effectiveCrop = cropOverride || "Maize (Zea mays)";
-    const effectiveVolume = parseFloat(volumeOverride) || 2700;
-    const effectiveLocation = locationOverride || "Bunia Depot";
+    const effectiveCrop = overrides?.crop || cropOverride || "Maize (Zea mays)";
+    const effectiveVolume = overrides?.volume_kg ? parseFloat(overrides.volume_kg) : (parseFloat(volumeOverride) || 2700);
+    const effectiveLocation = overrides?.location || locationOverride || "Bunia Depot";
     const effectiveNotes = notes || `${effectiveCrop} harvest of ${effectiveVolume.toLocaleString()} kg ready for dispatch from ${effectiveLocation}.`;
 
-    // Guard: Require at least some input (text, audio, image, or guided override)
+    // Guard: Require at least some input
     const hasInput = Boolean(
       (notes && notes.trim().length > 0) ||
       audioName || audioFile || audioPresetUrl ||
       imageFile || imagePreview ||
       cropOverride || volumeOverride || selectedPresetId ||
-      inputMode === 'guided'
+      inputMode === 'guided' || overrides
     );
     if (!hasInput) {
       setError("Please provide either a farmer voice note, text prompt, or harvest parameters before dispatching.");
@@ -154,42 +162,42 @@ export default function App() {
     voiceAgent.stop();
     setIsSpeaking(false);
 
-    // If Simulation Mode or Preset Simulation is active
-    if (isSimulation || (!imageFile && !audioFile && selectedPresetId && (!notes || notes.trim().length === 0))) {
-      await simulateStepProgression();
-
-      const matchedPreset = PRESET_SCENARIOS.find(p => p.id === selectedPresetId) || PRESET_SCENARIOS[0];
-      const parsed = parseExecutionLedger(matchedPreset.simulationLedger, {
-        farmerId: farmerId || matchedPreset.farmerId
-      });
-
-      setRawReport(matchedPreset.simulationLedger);
-      setParsedData(parsed);
-      setActiveStep(7);
-      setLoading(false);
-      return;
-    }
-
     const formData = new FormData();
     if (farmerId) formData.append('farmer_id', farmerId);
-    if (cropOverride) formData.append('crop', cropOverride);
-    if (volumeOverride) formData.append('volume_kg', volumeOverride);
-    if (locationOverride) formData.append('location', locationOverride);
+    if (effectiveCrop) formData.append('crop', effectiveCrop);
+    if (effectiveVolume) formData.append('volume_kg', String(effectiveVolume));
+    if (effectiveLocation) formData.append('location', effectiveLocation);
     formData.append('notes', effectiveNotes);
     formData.append('lang', lang);
 
     if (imageFile) {
       formData.append('image', imageFile);
+    } else if (imagePreview && imagePreview.startsWith('/')) {
+      try {
+        const imgRes = await fetch(imagePreview);
+        if (imgRes.ok) {
+          const blob = await imgRes.blob();
+          formData.append('image', blob, 'harvest_specimen.jpg');
+        }
+      } catch (e) {}
     }
+
     if (audioFile) {
       formData.append('audio', audioFile);
+    } else if (audioPresetUrl && audioPresetUrl.startsWith('/')) {
+      try {
+        const audRes = await fetch(audioPresetUrl);
+        if (audRes.ok) {
+          const blob = await audRes.blob();
+          formData.append('audio', blob, 'farmer_voice_note.mp4');
+        }
+      } catch (e) {}
     }
 
     try {
-      setActiveStep(1);
-      const stepTimer1 = setTimeout(() => setActiveStep(2), 600);
-      const stepTimer2 = setTimeout(() => setActiveStep(3), 1200);
-      const stepTimer3 = setTimeout(() => setActiveStep(4), 1800);
+      setActiveStep(2);
+      const stepTimer1 = setTimeout(() => setActiveStep(3), 800);
+      const stepTimer2 = setTimeout(() => setActiveStep(4), 1600);
 
       const response = await fetch(`${backendUrl}/api/v1/dispatch`, {
         method: 'POST',
@@ -198,16 +206,15 @@ export default function App() {
 
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
-      clearTimeout(stepTimer3);
 
       if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: Failed to process multimodal payload`);
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Server returned HTTP ${response.status}: Failed to process dispatch`);
       }
 
       setActiveStep(5);
       const data = await response.json();
       setActiveStep(6);
-      await new Promise(r => setTimeout(r, 300));
 
       const reportPayload = data.executive_report || data;
       setRawReport(typeof reportPayload === 'string' ? reportPayload : JSON.stringify(reportPayload, null, 2));
@@ -218,63 +225,10 @@ export default function App() {
       setParsedData(parsed);
       setActiveStep(7);
     } catch (err) {
-      console.warn("Backend API notice, synthesizing autonomous client reasoning:", err);
-      await simulateStepProgression();
-
-      // Dynamic calculation based on guided or preset inputs
-      const spotPrice = effectiveCrop.toLowerCase().includes("coffee") ? 2.80 :
-        effectiveCrop.toLowerCase().includes("cassava") ? 0.29 :
-        effectiveCrop.toLowerCase().includes("tomatoes") ? 0.90 :
-        effectiveCrop.toLowerCase().includes("beans") ? 0.80 : 0.45;
-      
-      const gross = effectiveVolume * spotPrice;
-      const freightCost = effectiveVolume * 0.04;
-      const net = gross - freightCost;
-      const waybillCode = "KILIMO-WB-" + Math.random().toString(36).substring(2, 10).toUpperCase();
-
-      const dynamicLedger = `### Execution Ledger: Transaction ${farmerId || "TX-KILIMO-884920F"}
-
-1. Audio Extraction & Verification
-* Spoken Transcribed Excerpt: "${effectiveNotes}"
-* Declared Commodity: ${effectiveCrop}
-* Extracted Weight: ${effectiveVolume.toLocaleString()}.0 kg
-* Origin Location: ${effectiveLocation}
-* Dialect Detected: Kiswahili / French Regional Agricultural Dialect
-
-2. Visual Crop Quality Assessment
-* Identified Specimen: ${effectiveCrop}
-* Physical Characteristics: Optimal moisture content, uniform grain integrity, zero post-harvest defects detected.
-* Moisture Rating: ~12.2% (Optimal storage & export grade)
-* Quality Classification: Grade A Standard
-
-3. Market Arbitrage Evaluation (Tool: fetch_market_rates)
-* Border Trade Zone:           $${spotPrice.toFixed(2)}/kg -> Gross: $${gross.toFixed(2)} | Freight: $${freightCost.toFixed(2)} | Net: $${net.toFixed(2)} [SELECTED - MAX ARBITRAGE]
-* Coastal Wholesale Terminal:  $${(spotPrice * 0.93).toFixed(2)}/kg -> Gross: $${(gross * 0.93).toFixed(2)} | Freight: $${freightCost.toFixed(2)} | Net: $${(gross * 0.93 - freightCost).toFixed(2)} [Suboptimal]
-* Central Market Hub:          $${(spotPrice * 0.84).toFixed(2)}/kg -> Gross: $${(gross * 0.84).toFixed(2)} | Freight: $${freightCost.toFixed(2)} | Net: $${(gross * 0.84 - freightCost).toFixed(2)} [Baseline]
-
-4. Freight Dispatch Confirmation (Tool: dispatch_freight_booking)
-* Booking Status: DISPATCH_CONFIRMED
-* Carrier Fleet: East-West AgroLogistics Fleet
-* Waybill ID: ${waybillCode}
-* Destination: Border Trade Zone Wholesale Terminal
-* Estimated Transit Duration: 6 Hours
-* Freight Logistics Cost: $${freightCost.toFixed(2)} USD ($0.04/kg)
-* Net Farmer Payout: $${net.toFixed(2)} USD
-
-5. State Machine & Audit Trace
-* Transaction ID: TX-KILIMO-884920F
-* Security Armor: Gemma 2 (9B-IT) -> Verdict: SAFE (0.00 injection risk)
-* Primary Orchestrator: Gemini 3.6 Flash Enterprise (Automatic Tool Calling)
-* State Status: COMPLETED & Persisted to Cloud Firestore`;
-
-      const parsed = parseExecutionLedger(dynamicLedger, {
-        farmerId: farmerId || "AUTONOMOUS-DYNAMIC",
-        language: lang
-      });
-
-      setRawReport(dynamicLedger);
-      setParsedData(parsed);
-      setActiveStep(7);
+      console.error("[Live Dispatch Pipeline Error]:", err);
+      setError(err.message || "Failed to execute backend dispatch request.");
+      setHasExecuted(false);
+      setActiveStep(0);
     } finally {
       setLoading(false);
     }
@@ -522,6 +476,7 @@ export default function App() {
                   loading={loading}
                   onSubmit={handleSubmit}
                   lang={lang}
+                  backendUrl={backendUrl}
                 />
               ) : (
                 /* Mode 2: Quick Multimodal Input Capsule */
@@ -947,8 +902,6 @@ export default function App() {
         onClose={() => setShowArchModal(false)}
         backendUrl={backendUrl}
         setBackendUrl={setBackendUrl}
-        isSimulation={isSimulation}
-        setIsSimulation={setIsSimulation}
       />
 
       {/* WhatsApp Simulator Modal */}
@@ -964,7 +917,21 @@ export default function App() {
         isOpen={showLiveModal}
         onClose={() => setShowLiveModal(false)}
         lang={lang}
-        onCommitDispatch={() => handleSelectPreset(PRESET_SCENARIOS[0])}
+        backendUrl={backendUrl}
+        onCommitDispatch={(liveParams) => {
+          if (liveParams) {
+            if (liveParams.crop) setCropOverride(liveParams.crop);
+            if (liveParams.volume_kg) setVolumeOverride(String(liveParams.volume_kg));
+            if (liveParams.origin_depot) setLocationOverride(liveParams.origin_depot);
+            if (liveParams.crop && liveParams.volume_kg && liveParams.origin_depot) {
+              handleSubmit(null, {
+                crop: liveParams.crop,
+                volume_kg: liveParams.volume_kg,
+                location: liveParams.origin_depot
+              });
+            }
+          }
+        }}
       />
     </div>
   );

@@ -120,8 +120,8 @@ class GemmaModelArmor:
         kra_pin_pattern = r'\b([A-P]\d{9}[A-Z])\b'
         sanitized = re.sub(kra_pin_pattern, '[REDACTED_TAX_PIN]', sanitized)
 
-        # 8. Standard & Regional Phone Numbers (+254..., +255..., 07..., 06...)
-        phone_pattern = r'(?:\+\d{1,4}[-.\s]*)?\(?0?[16789]\d{1,2}\)?[-.\s]?\d{3}[-.\s]?\d{3,4}\b'
+        # 8. Standard & Regional Phone Numbers (+254..., +255..., +243..., 07..., 06...)
+        phone_pattern = r'(\+\d{1,4}[\s.-]*)?(\(?\d{2,4}\)?[\s.-]*)?\d{3,4}[\s.-]*\d{3,4}\b'
         sanitized = re.sub(phone_pattern, '[REDACTED_PHONE]', sanitized)
 
         # 9. Password / Secret / API Key / Bank PIN
