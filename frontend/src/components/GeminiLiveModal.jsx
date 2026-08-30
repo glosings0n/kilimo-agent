@@ -69,9 +69,11 @@ export default function GeminiLiveModal({
   // Initialize Speech Recognition & Real Audio Analyzer on Open
   useEffect(() => {
     if (isOpen) {
-      setConnectionStatus('connecting');
+      setConnectionStatus('listening');
       setTranscripts(initialTranscript[lang] || initialTranscript.en);
       setDetectedSpecimen(null);
+      setIsAiSpeaking(false);
+      setIsProcessing(false);
       setLiveParams({
         crop: null,
         volume_kg: null,
@@ -79,26 +81,14 @@ export default function GeminiLiveModal({
         destination_preference: null
       });
 
-      // Play initial welcome voice
-      const initialText = (initialTranscript[lang] || initialTranscript.en)[0].text;
-      setTimeout(() => {
-        setConnectionStatus('live');
-        voiceAgent.speak(initialText, lang, () => {
-          setIsAiSpeaking(false);
-        });
-        setIsAiSpeaking(true);
-      }, 500);
-
-      // Start Microphone & Speech Recognition
+      // Start Microphone & Speech Recognition in active listening mode (NO self-echoing welcome speech)
       startMicrophoneAndSpeech();
     } else {
       stopAllMedia();
-      voiceAgent.stop();
     }
 
     return () => {
       stopAllMedia();
-      voiceAgent.stop();
     };
   }, [isOpen, lang]);
 
@@ -133,7 +123,7 @@ export default function GeminiLiveModal({
         };
 
         recognition.onresult = async (event) => {
-          if (isMuted) return;
+          if (isMuted || isAiSpeaking) return;
           const lastResult = event.results[event.results.length - 1];
           if (lastResult.isFinal) {
             const spokenText = lastResult[0].transcript.trim();
@@ -148,13 +138,6 @@ export default function GeminiLiveModal({
               return;
             }
 
-            // Interrupt any lingering AI audio
-            voiceAgent.stop();
-            if (typeof window !== 'undefined' && window.speechSynthesis) {
-              window.speechSynthesis.cancel();
-            }
-            setIsAiSpeaking(false);
-
             await handleFarmerSpeech(spokenText);
           }
         };
@@ -164,13 +147,13 @@ export default function GeminiLiveModal({
         };
 
         recognition.onend = () => {
-          // Restart recognition if modal is still open and not muted
-          if (isOpen && !isMuted && recognitionRef.current) {
-            try { recognition.start(); } catch (e) {}
+          // Restart recognition if modal is still open, not muted, and AI is NOT speaking
+          if (isOpen && !isMuted && !isAiSpeaking && recognitionRef.current) {
+            try { recognitionRef.current.start(); } catch (e) {}
           }
         };
 
-        recognition.start();
+        try { recognition.start(); } catch(e) {}
         recognitionRef.current = recognition;
       } catch (err) {
         console.warn("[Speech Recognition Init Error]:", err);
@@ -294,6 +277,11 @@ export default function GeminiLiveModal({
           }));
         }
 
+        // Pause recognition while speaking so mic does not record speaker output
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch(e) {}
+        }
+
         // Add Gemini reply
         setTranscripts(prev => [
           ...prev,
@@ -306,7 +294,12 @@ export default function GeminiLiveModal({
         setIsAiSpeaking(true);
         voiceAgent.speak(reply, detectedLang, () => {
           setIsAiSpeaking(false);
-          setConnectionStatus('live');
+          setConnectionStatus('listening');
+          setTimeout(() => {
+            if (isOpen && !isMuted && recognitionRef.current) {
+              try { recognitionRef.current.start(); } catch(e) {}
+            }
+          }, 350);
         });
       } else {
         throw new Error("Live endpoint response error");
@@ -319,6 +312,10 @@ export default function GeminiLiveModal({
         ? `Bien reçu : "${spokenText}". Indiquez votre culture, le volume en KG et votre dépôt.`
         : `Got it: "${spokenText}". Please specify your crop, volume in KG, and collection depot.`;
 
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch(e) {}
+      }
+
       setTranscripts(prev => [
         ...prev,
         { sender: 'gemini', text: fallbackReply, time: 'Live' }
@@ -329,7 +326,12 @@ export default function GeminiLiveModal({
       setIsAiSpeaking(true);
       voiceAgent.speak(fallbackReply, lang, () => {
         setIsAiSpeaking(false);
-        setConnectionStatus('live');
+        setConnectionStatus('listening');
+        setTimeout(() => {
+          if (isOpen && !isMuted && recognitionRef.current) {
+            try { recognitionRef.current.start(); } catch(e) {}
+          }
+        }, 350);
       });
     } finally {
       setIsProcessing(false);
@@ -340,8 +342,14 @@ export default function GeminiLiveModal({
   const toggleCamera = async () => {
     if (isVideoLive) {
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach(track => {
+          track.stop();
+          track.enabled = false;
+        });
         streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
       }
       setIsVideoLive(false);
       setDetectedSpecimen(null);
@@ -358,23 +366,13 @@ export default function GeminiLiveModal({
         setIsVideoLive(true);
         setConnectionStatus('analyzing');
 
-        // Capture snapshot frame after 1.5s for real AI grading
-        setTimeout(async () => {
-          await analyzeCurrentVideoFrame();
-        }, 1500);
-      } catch (err) {
-        console.warn("Camera permission denied or unavailable:", err);
-        setIsVideoLive(true);
-        // Fallback simulation mode
+        // Trigger real-time computer vision frame analysis
         setTimeout(() => {
-          setDetectedSpecimen({
-            crop: "Flint Maize (Sample Inspection)",
-            grade: "Grade A Standard (Moisture ~12.2%)",
-            qualityScore: "98.4% Purity",
-            recommendation: "Optimal export & cross-border arbitrage grade"
-          });
-          setConnectionStatus('live');
+          analyzeCurrentVideoFrame();
         }, 1200);
+      } catch (err) {
+        console.warn("[Camera Live Access Error]:", err);
+        setIsVideoLive(false);
       }
     }
   };
@@ -430,33 +428,71 @@ export default function GeminiLiveModal({
           qualityScore: "98.4% Purity",
           recommendation: "Optimal export & cross-border arbitrage grade"
         });
-        setConnectionStatus('live');
+        setConnectionStatus('listening');
       }, 'image/jpeg', 0.85);
     } catch (err) {
       console.warn("[Canvas capture error]:", err);
-      setConnectionStatus('live');
+      setConnectionStatus('listening');
     }
   };
 
   const stopAllMedia = () => {
+    // 0. Stop TTS immediately
+    voiceAgent.stop();
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setIsAiSpeaking(false);
+    setIsProcessing(false);
+
+    // 1. Destroy camera tracks
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+        track.enabled = false;
+      });
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsVideoLive(false);
+
+    // 2. Destroy microphone tracks
     if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+        track.enabled = false;
+      });
       micStreamRef.current = null;
     }
+
+    // 3. Destroy Speech Recognition instance
     if (recognitionRef.current) {
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onend = null;
+      recognitionRef.current.onspeechstart = null;
+      try { recognitionRef.current.abort(); } catch (e) {}
       try { recognitionRef.current.stop(); } catch (e) {}
       recognitionRef.current = null;
     }
+
+    // 4. Close Audio Context
     if (audioContextRef.current) {
-      try { audioContextRef.current.close(); } catch (e) {}
+      try {
+        if (audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close();
+        }
+      } catch (e) {}
       audioContextRef.current = null;
+      analyserRef.current = null;
     }
+
+    // 5. Cancel Visualizer Animation
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
   };
 
@@ -550,21 +586,44 @@ export default function GeminiLiveModal({
             /* Live Audio Mode Canvas (Default Stage) */
             <div className="text-center space-y-4 py-4">
               <div className="relative inline-flex items-center justify-center">
-                <div className={`w-20 h-20 rounded-full flex items-center justify-center relative z-10 transition-all ${
-                  isAiSpeaking 
-                    ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/25 scale-105' 
-                    : isProcessing
-                    ? 'bg-amber-500 text-slate-950'
-                    : 'bg-emerald-500 text-slate-950'
-                }`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isAiSpeaking) {
+                      voiceAgent.stop();
+                      if (typeof window !== 'undefined' && window.speechSynthesis) {
+                        window.speechSynthesis.cancel();
+                      }
+                      setIsAiSpeaking(false);
+                      setConnectionStatus('listening');
+                      setTimeout(() => {
+                        try { recognitionRef.current?.start(); } catch(e) {}
+                      }, 200);
+                    } else {
+                      setIsMuted(!isMuted);
+                    }
+                  }}
+                  className={`w-20 h-20 rounded-full flex items-center justify-center relative z-10 transition-all cursor-pointer ${
+                    isAiSpeaking 
+                      ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/25 scale-105 animate-pulse' 
+                      : isProcessing
+                      ? 'bg-amber-500 text-slate-950'
+                      : isMuted
+                      ? 'bg-rose-500 text-white'
+                      : 'bg-emerald-500 text-slate-950'
+                  }`}
+                  title={isAiSpeaking ? "Tap to Interrupt" : isMuted ? "Tap to Unmute" : "Listening (Tap to Mute)"}
+                >
                   {isProcessing ? (
                     <Loader2 className="w-9 h-9 animate-spin stroke-[2.2]" />
                   ) : isAiSpeaking ? (
-                    <Volume2 className="w-9 h-9 stroke-[2.2] animate-bounce" />
+                    <Volume2 className="w-9 h-9 stroke-[2.2]" />
+                  ) : isMuted ? (
+                    <MicOff className="w-9 h-9 stroke-[2.2]" />
                   ) : (
                     <Mic className="w-9 h-9 stroke-[2.2]" />
                   )}
-                </div>
+                </button>
               </div>
 
               {/* Dynamic Audio Visualizer Bars (Driven by Web Audio API) */}
