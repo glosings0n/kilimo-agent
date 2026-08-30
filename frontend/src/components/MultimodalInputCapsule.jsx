@@ -275,7 +275,9 @@ export default function MultimodalInputCapsule({
         setIsRecording(true);
       } catch (err) {
         console.warn('Microphone access denied:', err);
-        setAudioName('sample_voice.mp4 (Swahili recording)');
+        setAudioName(null);
+        setAudioFile(null);
+        setAudioPresetUrl(null);
         setNotes("");
         setPlaybackCurrentTime(0);
       }
@@ -511,8 +513,9 @@ export default function MultimodalInputCapsule({
         const formData = new FormData();
         formData.append('user_id', farmerId || 'farmer_guest');
         formData.append('session_id', 'session_web_chat');
-        formData.append('message', userText || (imageFile ? 'Voici la photo de ma récolte.' : ''));
+        formData.append('message', userText || (audioFile ? '[Farmer Voice Note Recorded]' : (imageFile ? 'Voici la photo de ma récolte.' : '')));
         formData.append('preferred_language', autoLang);
+        formData.append('execute_on_ready', 'false');
         formData.append('current_params', JSON.stringify({
           crop: cropOverride,
           volume: volumeOverride,
@@ -722,7 +725,16 @@ export default function MultimodalInputCapsule({
 
   const isGenUIActive = showGenUIStream && genuiMessages.length > 1;
   const hasValidInput = Boolean(
-    (notes && notes.trim().length > 0) || audioName || audioFile || audioPresetUrl || cropOverride || volumeOverride || locationOverride || isWaitingInteractiveChoice
+    (notes && notes.trim().length > 0) ||
+    imageFile ||
+    imagePreview ||
+    audioName ||
+    audioFile ||
+    audioPresetUrl ||
+    cropOverride ||
+    volumeOverride ||
+    locationOverride ||
+    isWaitingInteractiveChoice
   );
   const canSubmit = !loading && (hasValidInput || isWaitingInteractiveChoice) && !isRecording;
 
