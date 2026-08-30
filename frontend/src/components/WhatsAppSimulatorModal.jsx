@@ -53,18 +53,23 @@ function formatWhatsAppMarkdown(text) {
 function computeMultiTurnResponse(userText, state, currentLang) {
   const lower = userText.toLowerCase().trim();
 
-  // Dynamic language detection from first word or text
-  let detectedLang = currentLang;
-  if (/^(salut|bonjour|bonsoir|coucou|je\s|j'ai|vendre)\b/i.test(lower) || /\b(manioc|haricot|maïs|sacs?|récolte|prix)\b/i.test(lower)) {
-    detectedLang = 'fr';
-  } else if (/^(habari|jambo|hujambo|sijambo|mambo|niaje|sasa|karibu)\b/i.test(lower) || /\b(mahindi|muhogo|maharagwe|nyanya|magunia|kilo)\b/i.test(lower)) {
-    detectedLang = 'sw';
-  } else if (/^(hello|hi|hey|good\s+morning|good\s+afternoon)\b/i.test(lower)) {
-    detectedLang = 'en';
-  }
+  // Dynamic language detection from text
+  const isFrench = /(salut|bonjour|bonsoir|coucou|je\s|j[\'’]ai|donne|quoi|faire|obligation|oblige|recolte|récolte|mais|maïs|manioc|café|haricots|tomates|patate|dépôt|depot|prix|combien)/i.test(lower);
+  const isSwahili = /(habari|jambo|hujambo|mambo|niaje|sasa|vipi|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari)/i.test(lower);
+  const effectiveLang = isFrench ? 'fr' : isSwahili ? 'sw' : (currentLang || 'en');
+  const isSw = effectiveLang === 'sw';
+  const isFr = effectiveLang === 'fr';
 
-  const isSw = detectedLang === 'sw';
-  const isFr = detectedLang === 'fr';
+  // 0. Coercive Demand & Hostile Override Security Check
+  const isCoercive = /(c[\'’]est\s+une\s+obligation|donne[- ]moi|je\s+t[\'’]oblige|je\s+t[\'’]ordonne|ob[ée]is[- ]moi|fais\s+ce\s+que\s+je\s+(te\s+)?dis|t[\'’]as\s+pas\s+le\s+choix|force[- ]toi|je\s+t[\'’]impose|tu\s+dois\s+m[\'’]ob[ée]ir|lazima\s+unipe|nakulazimisha|nakuamuru|fanya\s+ninachosema|i\s+command\s+you|i\s+force\s+you|you\s+must\s+obey|do\s+as\s+i\s+say)/i.test(lower);
+  if (isCoercive) {
+    const reply = isFr
+      ? "🛑 *KILIMOAGENT: ALERTE DE SÉCURITÉ*\n━━━━━━━━━━━━━━━━━━━━\nTentative d'injonction coercitive ou de contournement des protocoles détectée. KilimoAgent est un agent autonome strictement encadré par ses protocoles d'arbitrage agricole. La session a été verrouillée par mesure de protection. Cliquez sur 'Recommencer' pour engager une nouvelle transaction.\n━━━━━━━━━━━━━━━━━━━━\n🔒 _Session verrouillée par les protocoles de sécurité._"
+      : isSw
+      ? "🛑 *KILIMOAGENT: USALAMA WA MFUMO*\n━━━━━━━━━━━━━━━━━━━━\nJaribio la kulazimisha au kukiuka sheria za mfumo limetambuliwa. Kikao kimefungwa kwa ajili ya usalama. Bofya 'Anza upya' ili kuanza tena kwa usalama.\n━━━━━━━━━━━━━━━━━━━━\n🔒 _Kikao kimefungwa kwa itifaki za usalama._"
+      : "🛑 *KILIMOAGENT: SECURITY INTERCEPTION*\n━━━━━━━━━━━━━━━━━━━━\nCoercive demand or instruction bypass attempt detected. KilimoAgent is an autonomous agent strictly governed by agricultural protocols. The session has been terminated for protection. Click 'Start New Request' to begin a safe session.\n━━━━━━━━━━━━━━━━━━━━\n🔒 _Session locked by platform security guardrails._";
+    return { reply, newState: { ...state, isTerminated: true } };
+  }
 
   // 3. Detect depot mentions
   let detectedDepot = state.depot;
@@ -75,13 +80,13 @@ function computeMultiTurnResponse(userText, state, currentLang) {
     }
   });
 
-  // 1. Detect any crop mentions
+  // 1. Detect crop mentions
   let detectedCrop = state.crop;
-  if (lower.includes("maize") || lower.includes("mahindi") || lower.includes("maïs") || lower.includes("corn")) {
+  if (lower.includes("maize") || lower.includes("mahindi") || lower.includes("maïs") || lower.includes("mais") || lower.includes("corn")) {
     detectedCrop = "Maize (Mahindi)";
   } else if (lower.includes("cassava") || lower.includes("muhogo") || lower.includes("manioc")) {
     detectedCrop = "Cassava (Manioc)";
-  } else if (lower.includes("coffee") || lower.includes("kahawa") || lower.includes("café")) {
+  } else if (lower.includes("coffee") || lower.includes("kahawa") || lower.includes("café") || lower.includes("cafe")) {
     detectedCrop = "Arabica Coffee (Kahawa)";
   } else if (lower.includes("bean") || lower.includes("maharagwe") || lower.includes("haricot")) {
     detectedCrop = "Dry Beans (Maharagwe)";
@@ -94,14 +99,15 @@ function computeMultiTurnResponse(userText, state, currentLang) {
     detectedCrop = userText.trim();
   }
 
-  // 2. Detect any volume mentions
+  // 2. Detect any volume mentions (including raw numbers like 43000, 2700, 5000)
   let detectedVolume = state.volume;
   const volMatch = lower.match(/(\d[\d,\s]*)\s*(?:kg|kilo|ton|tonne|bags|gunia|sac)/i);
   if (volMatch) {
     detectedVolume = parseFloat(volMatch[1].replace(/,/g, '').trim());
   } else {
-    const numMatch = lower.match(/\b(\d{3,6})\b/);
-    if (numMatch) {
+    const numClean = lower.replace(/(\d)\s+(\d)/g, '$1$2').replace(/,/g, '');
+    const numMatch = numClean.match(/\b(\d{2,8}(?:\.\d+)?)\b/);
+    if (numMatch && parseFloat(numMatch[1]) >= 10) {
       detectedVolume = parseFloat(numMatch[1]);
     }
   }
@@ -279,6 +285,9 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
           const data = await res.json();
           if (data.detected_language && ['fr', 'sw', 'en'].includes(data.detected_language)) {
             setSelectedLang(data.detected_language);
+          }
+          if (data.action === "TERMINATE_SESSION" || data.is_terminated) {
+            setConvState(prev => ({ ...prev, isTerminated: true }));
           }
           if (data.extracted_params) {
             setConvState(prev => ({
@@ -532,29 +541,44 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
           ))}
         </div>
 
-        {/* Chat Input Form */}
-        <form onSubmit={handleSend} className="p-3 bg-slate-950 border-t border-slate-800 flex items-center space-x-2">
-          <input
-            type="text"
-            value={messageText}
-            onChange={(e) => setMessageText(e.target.value)}
-            placeholder={
-              selectedLang === 'sw'
-                ? "Andika 'Habari', aina ya zao, au uzito hapa..."
-                : selectedLang === 'fr'
-                ? "Tapez 'Bonjour', la récolte ou le volume..."
-                : "Type 'Hello', crop name, or volume here..."
-            }
-            className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500 placeholder:text-slate-500"
-          />
-          <button
-            type="submit"
-            disabled={loading || !messageText.trim()}
-            className="p-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition disabled:opacity-40 cursor-pointer font-bold"
-          >
-            <Send className="w-4 h-4 text-slate-950 fill-current" />
-          </button>
-        </form>
+        {/* Chat Input Form or Terminated Security Lock */}
+        {convState.isTerminated ? (
+          <div className="p-3 bg-rose-950/40 border-t border-rose-500/40 flex items-center justify-between gap-3 animate-in fade-in">
+            <span className="text-xs text-rose-300 font-bold flex items-center gap-1.5 truncate">
+              🛑 Session verrouillée par mesure de sécurité
+            </span>
+            <button
+              type="button"
+              onClick={handleResetChat}
+              className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
+            >
+              🔄 Recommencer
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSend} className="p-3 bg-slate-950 border-t border-slate-800 flex items-center space-x-2">
+            <input
+              type="text"
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              placeholder={
+                selectedLang === 'sw'
+                  ? "Andika 'Habari', aina ya zao, au uzito hapa..."
+                  : selectedLang === 'fr'
+                  ? "Tapez 'Bonjour', la récolte ou le volume..."
+                  : "Type 'Hello', crop name, or volume here..."
+              }
+              className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500 placeholder:text-slate-500"
+            />
+            <button
+              type="submit"
+              disabled={loading || !messageText.trim()}
+              className="p-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition disabled:opacity-40 cursor-pointer font-bold"
+            >
+              <Send className="w-4 h-4 text-slate-950 fill-current" />
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

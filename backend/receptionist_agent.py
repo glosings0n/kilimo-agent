@@ -106,15 +106,15 @@ def _detect_lang_receptionist(text: str) -> Optional[str]:
     text_l = text.lower().strip()
     
     # Direct fast-path regex for typical greetings and regional expressions
-    if re.search(r'^(salut|bonjour|bonsoir|coucou|allo|allô|bienvenue)\b', text_l) or re.search(r'\b(je\s|j\'ai|recolte|récolte|combien|manioc|haricot|mais|maïs|sacs?|vendre|agricole|dépôt|depot)\b', text_l):
+    if re.search(r'^(salut|bonjour|bonsoir|coucou|allo|allô|bienvenue|donne|je|j[\'’]ai|nous|vous|quoi|comment|pourquoi)\b', text_l) or re.search(r'\b(je\s|j[\'’]ai|recolte|récolte|combien|manioc|haricot|mais|maïs|sacs?|vendre|agricole|dépôt|depot|donne|quoi|faire|obligation|oblige|patate|patates|douce|douces)\b', text_l):
         return "fr"
-    if re.search(r'^(habari|jambo|hujambo|sijambo|mambo|niaje|ni\s*aje|sasa|vipi|shikamoo|karibu)\b', text_l) or re.search(r'\b(nataka|nina|mahindi|muhogo|maharagwe|nyanya|gunia|magunia|bei|shamba|soko|kituo|ghala)\b', text_l):
+    if re.search(r'^(habari|jambo|hujambo|sijambo|mambo|niaje|ni\s*aje|sasa|vipi|shikamoo|karibu)\b', text_l) or re.search(r'\b(nataka|nina|mahindi|muhogo|maharagwe|nyanya|gunia|magunia|bei|shamba|soko|kituo|ghala|nini|wapi|anza)\b', text_l):
         return "sw"
-    if re.search(r'^(hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening|greetings)\b', text_l) or re.search(r'\b(i\s+have|i\s+want|maize|beans|cassava|coffee|dispatch|farmer|price|depot)\b', text_l):
+    if re.search(r'^(hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening|greetings)\b', text_l) or re.search(r'\b(i\s+have|i\s+want|maize|beans|cassava|coffee|dispatch|farmer|price|depot|what|where)\b', text_l):
         return "en"
 
-    sw_words = ["habari", "jambo", "hujambo", "sijambo", "mambo", "niaje", "sasa", "vipi", "asante", "shamba", "mahindi", "gunia", "magunia", "kilo", "muhogo", "nyanya", "maharagwe", "bei", "usafiri", "kitale", "eldoret", "nakuru", "nipo", "tuma", "soko", "karibu", "kuuza"]
-    fr_words = ["bonjour", "salut", "bonsoir", "coucou", "merci", "champ", "maïs", "mais", "manioc", "tomates", "haricots", "prix", "transport", "récolte", "recolte", "sac", "sacs", "goma", "bukavu", "bunia", "kilo", "tonnes", "bienvenue", "vendre"]
+    sw_words = ["habari", "jambo", "hujambo", "sijambo", "mambo", "niaje", "sasa", "vipi", "asante", "shamba", "mahindi", "gunia", "magunia", "kilo", "muhogo", "nyanya", "maharagwe", "bei", "usafiri", "kitale", "eldoret", "nakuru", "nipo", "tuma", "soko", "karibu", "kuuza", "nini", "wapi"]
+    fr_words = ["bonjour", "salut", "bonsoir", "coucou", "merci", "champ", "maïs", "mais", "manioc", "tomates", "haricots", "prix", "transport", "récolte", "recolte", "sac", "sacs", "goma", "bukavu", "bunia", "kilo", "tonnes", "bienvenue", "vendre", "donne", "moi", "quoi", "faire", "obligation", "oblige", "est", "je", "tu", "il", "nous", "vous", "avec", "pour", "dans", "sur", "suis", "veux", "peux", "patate", "douce", "que", "qui"]
     
     sw_c = sum(1 for w in sw_words if re.search(rf"\b{w}\b", text_l))
     fr_c = sum(1 for w in fr_words if re.search(rf"\b{w}\b", text_l))
@@ -205,6 +205,14 @@ def _extract_volume_rule(text: str) -> Optional[float]:
     kg_match_2 = re.search(r'(?:kilo|kilos)\s*(\d+(?:\.\d+)?)', text_l)
     if kg_match_2:
         return float(kg_match_2.group(1))
+
+    # Check for pure standalone number (e.g. "43000", "43 000", "2700", "5000", "j'ai 43000") -> default to KG
+    num_clean = re.sub(r'(\d)\s+(\d)', r'\1\2', text_l)
+    pure_num = re.search(r'\b(\d{2,8}(?:\.\d+)?)\b', num_clean)
+    if pure_num:
+        val = float(pure_num.group(1))
+        if val >= 10.0:
+            return val
         
     return None
 
