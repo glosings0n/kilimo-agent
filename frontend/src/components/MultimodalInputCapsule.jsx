@@ -74,6 +74,7 @@ export default function MultimodalInputCapsule({
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showGenUIStream, setShowGenUIStream] = useState(false);
   const [forceManualText, setForceManualText] = useState(false);
+  const [isIntakeLoading, setIsIntakeLoading] = useState(false);
 
   // Conversational Receptionist Messages (Initial welcome without pre-rendered crop cards)
   const [genuiMessages, setGenuiMessages] = useState([
@@ -317,8 +318,8 @@ export default function MultimodalInputCapsule({
   };
 
   const removeImage = () => {
-    setImagePreview(null);
-    setImageFile(null);
+    setImagePreview?.(null);
+    setImageFile?.(null);
   };
 
   const removeAudio = () => {
@@ -327,14 +328,14 @@ export default function MultimodalInputCapsule({
     }
     setIsPlayingAudio(false);
     setPlaybackCurrentTime(0);
-    setAudioName(null);
-    setAudioFile(null);
-    setAudioPresetUrl(null);
+    setAudioName?.(null);
+    setAudioFile?.(null);
+    setAudioPresetUrl?.(null);
   };
 
   const handleTextChange = (e) => {
     const text = e.target.value;
-    setNotes(text);
+    setNotes?.(text);
     if (text.trim().length > 0 && (audioName || audioFile || audioPresetUrl)) {
       removeAudio();
     }
@@ -432,16 +433,15 @@ export default function MultimodalInputCapsule({
     }, 250);
   };
 
-  // Process text entered in capsule
-  // Process text entered in capsule
   const handleFormSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (loading) return;
+    if (loading || isIntakeLoading) return;
 
     if (notes && notes.trim().length > 0) {
       const userText = notes.trim();
-      setNotes("");
+      setNotes?.("");
       setShowGenUIStream(true);
+      setIsIntakeLoading(true);
 
       // 1. Instant Client-Side Language Detection & Global App State Adaptation
       const lower = userText.toLowerCase();
@@ -507,6 +507,7 @@ export default function MultimodalInputCapsule({
             else widget = w;
           }
 
+          setIsIntakeLoading(false);
           addGenUIMessage({
             sender: 'agent',
             text: data.reply || (autoLang === 'fr' ? "Que souhaitez-vous expédier ?" : autoLang === 'sw' ? "Je, ungependa kusafirisha nini?" : "What would you like to dispatch?"),
@@ -547,6 +548,7 @@ export default function MultimodalInputCapsule({
       if (detectedDepot && setLocationOverride) setLocationOverride(detectedDepot);
 
       setTimeout(() => {
+        setIsIntakeLoading(false);
         if (isGreeting && !detectedCrop && !detectedVol && !detectedDepot) {
           addGenUIMessage({
             sender: 'agent',
@@ -603,7 +605,7 @@ export default function MultimodalInputCapsule({
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           });
         }
-      }, 200);
+      }, 400);
       return;
     }
   };
@@ -799,6 +801,32 @@ export default function MultimodalInputCapsule({
                 )}
               </div>
             ))}
+
+            {/* Animated 3-dot typing bubble */}
+            {isIntakeLoading && (
+              <div className="flex flex-col items-start space-y-2 animate-in fade-in duration-200">
+                <div className="flex items-center space-x-2 text-[10px] text-slate-500">
+                  <span>KilimoAgent</span>
+                  <span>•</span>
+                  <span>Live</span>
+                </div>
+                <div className="bg-[#0F172A] border border-slate-800 rounded-2xl rounded-bl-none px-4 py-3 flex items-center space-x-2.5">
+                  <div className="flex items-center space-x-1.5 py-0.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <span className="text-xs text-slate-300 font-medium ml-1">
+                    {lang === 'fr'
+                      ? "KilimoAgent analyse votre message..."
+                      : lang === 'sw'
+                      ? "KilimoAgent anachakata ujumbe wako..."
+                      : "KilimoAgent is analyzing your request..."}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div ref={chatStreamEndRef} />
           </div>
         </div>

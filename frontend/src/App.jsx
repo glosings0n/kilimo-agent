@@ -536,6 +536,7 @@ export default function App() {
                   audioFile={audioFile}
                   setAudioFile={setAudioFile}
                   audioPresetUrl={audioPresetUrl}
+                  setAudioPresetUrl={setAudioPresetUrl}
                   loading={loading}
                   onSubmit={handleSubmit}
                   onOpenLive={() => setShowLiveModal(true)}
