@@ -320,13 +320,36 @@ async def process_conversational_intake(
     When is_ready is True (or execute_on_ready=True with complete fields),
     automatically invokes the 8-tool kilimo_dispatch_agent pipeline.
     """
+    # Convert image_source and audio_source to bytes if file paths
+    img_b = None
+    if isinstance(image_source, bytes):
+        img_b = image_source
+    elif isinstance(image_source, str) and os.path.exists(image_source):
+        try:
+            with open(image_source, "rb") as f:
+                img_b = f.read()
+        except Exception:
+            pass
+
+    aud_b = None
+    if isinstance(audio_source, bytes):
+        aud_b = audio_source
+    elif isinstance(audio_source, str) and os.path.exists(audio_source):
+        try:
+            with open(audio_source, "rb") as f:
+                aud_b = f.read()
+        except Exception:
+            pass
+
     # 1. Run Receptionist Triage
     triage_result = await run_receptionist_triage(
         user_id=user_id,
         session_id=session_id,
         message=message,
         context_state=current_params,
-        lang=preferred_language
+        lang=preferred_language,
+        image_bytes=img_b,
+        audio_bytes=aud_b
     )
 
     extracted = triage_result.get("extracted_params", {})

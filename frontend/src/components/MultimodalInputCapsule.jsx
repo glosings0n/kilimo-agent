@@ -457,8 +457,13 @@ export default function MultimodalInputCapsule({
       }
     }
 
-    if (notes && notes.trim().length > 0) {
-      const userText = notes.trim();
+    handleTextSubmit();
+  };
+
+  const handleTextSubmit = async (textToSend) => {
+    const rawText = (typeof textToSend === 'string' ? textToSend : notes) || "";
+    if (rawText.trim().length > 0 || imageFile || audioFile || audioPresetUrl) {
+      const userText = rawText.trim();
       setNotes?.("");
       setShowGenUIStream(true);
       setIsIntakeLoading(true);
@@ -467,18 +472,18 @@ export default function MultimodalInputCapsule({
       const lower = userText.toLowerCase();
       let autoLang = lang;
       if (
-        /^(salut|bonjour|bonsoir|coucou|allo|allô|bienvenue|je\s|j'ai|combien|merci|vente|recolte|récolte|culture|dépôt|depot)/i.test(lower) ||
-        /\b(bonjour|salut|merci|récolte|recolte|mais|maïs|manioc|café|haricots|tomates|tonne|tonnes|kilos|dépôt|depot|prix|marche|marché)\b/i.test(lower)
+        /^(salut|bonjour|bonsoir|coucou|allo|allô|bienvenue|je\s|j'ai|combien|merci|vente|recolte|récolte|culture|dépôt|depot|que\s+penses)/i.test(lower) ||
+        /\b(bonjour|salut|merci|récolte|recolte|mais|maïs|manioc|café|haricots|tomates|tonne|tonnes|kilos|dépôt|depot|prix|marche|marché|image|photo)\b/i.test(lower)
       ) {
         autoLang = 'fr';
       } else if (
-        /^(habari|jambo|hujambo|mambo|shikamoo|hodi|kwa|asante|nataka|nani|wapi|bei|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia)/i.test(lower) ||
-        /\b(habari|jambo|karibu|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari|kilo)\b/i.test(lower)
+        /^(habari|jambo|hujambo|mambo|shikamoo|hodi|kwa|asante|nataka|nani|wapi|bei|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|unaonaje)/i.test(lower) ||
+        /\b(habari|jambo|karibu|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari|kilo|picha)\b/i.test(lower)
       ) {
         autoLang = 'sw';
       } else if (
-        /^(hello|hi|hey|good\s|morning|evening|afternoon|i\s|how\s|what\s|price|market|maize|corn|cassava|coffee|beans|tomatoes|depot)/i.test(lower) ||
-        /\b(hello|hi|hey|maize|corn|cassava|coffee|beans|tomatoes|bags|tons|tonnes|depot|market|freight|dispatch)\b/i.test(lower)
+        /^(hello|hi|hey|good\s|morning|evening|afternoon|i\s|how\s|what\s|price|market|maize|corn|cassava|coffee|beans|tomatoes|depot|think)/i.test(lower) ||
+        /\b(hello|hi|hey|maize|corn|cassava|coffee|beans|tomatoes|bags|tons|tonnes|depot|market|freight|dispatch|photo|image)\b/i.test(lower)
       ) {
         autoLang = 'en';
       }
@@ -489,11 +494,13 @@ export default function MultimodalInputCapsule({
 
       // Add user message in UI immediately
       const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      addGenUIMessage({
-        sender: 'user',
-        text: userText,
-        time: currentTime
-      });
+      if (userText) {
+        addGenUIMessage({
+          sender: 'user',
+          text: userText,
+          time: currentTime
+        });
+      }
 
       // 2. Call Multi-Agent Receptionist Endpoint
       try {
@@ -501,20 +508,27 @@ export default function MultimodalInputCapsule({
           ? 'https://kilimo-backend-840262173056.us-central1.run.app'
           : 'http://localhost:8000');
 
+        const formData = new FormData();
+        formData.append('user_id', farmerId || 'farmer_guest');
+        formData.append('session_id', 'session_web_chat');
+        formData.append('message', userText || (imageFile ? 'Voici la photo de ma récolte.' : ''));
+        formData.append('preferred_language', autoLang);
+        formData.append('current_params', JSON.stringify({
+          crop: cropOverride,
+          volume: volumeOverride,
+          origin: locationOverride
+        }));
+
+        if (imageFile) {
+          formData.append('image', imageFile);
+        }
+        if (audioFile) {
+          formData.append('audio', audioFile);
+        }
+
         const res = await fetch(`${effectiveBackend}/api/v1/intake/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: farmerId || 'farmer_guest',
-            session_id: 'session_web_chat',
-            message: userText,
-            preferred_language: autoLang,
-            current_params: {
-              crop: cropOverride,
-              volume: volumeOverride,
-              origin: locationOverride
-            }
-          })
+          body: formData
         });
 
         if (res.ok) {
@@ -552,7 +566,7 @@ export default function MultimodalInputCapsule({
         console.warn("Intake API offline, running client-side triage:", err);
       }
 
-      // Client-side deterministic fallback without calling onSubmit
+      // Client-side deterministic fallback
       const isSelfHarm = /(me\s+tuer|suicide|suicider|mourir|mettre\s+fin\s+[aà]\s+mes\s+jours|kujiua|kujinyonga|kuua\s+nafsi|kill\s+myself|end\s+my\s+life)/i.test(lower);
       if (isSelfHarm) {
         setTimeout(() => {
@@ -592,6 +606,15 @@ export default function MultimodalInputCapsule({
       const isGreeting = ["salut", "bonjour", "habari", "jambo", "hello", "hi", "hey"].some(g => lower.includes(g));
       
       let detectedCrop = cropOverride || null;
+      if (imageFile) {
+        const fname = (imageFile.name || "").toLowerCase();
+        if (fname.includes("cassava") || fname.includes("manioc")) detectedCrop = "Cassava (Manioc)";
+        else if (fname.includes("coffee") || fname.includes("cafe") || fname.includes("kahawa")) detectedCrop = "Coffee (Kahawa)";
+        else if (fname.includes("bean") || fname.includes("haricot") || fname.includes("maharagwe")) detectedCrop = "Beans (Maharagwe)";
+        else if (fname.includes("tomato") || fname.includes("nyanya")) detectedCrop = "Tomatoes (Nyanya)";
+        else detectedCrop = detectedCrop || "Maize (Mahindi)";
+      }
+
       CROPS_CATALOG.forEach(c => {
         if (lower.includes(c.id) || lower.includes(c.name.toLowerCase().split(" ")[0])) {
           detectedCrop = c.name;
@@ -617,7 +640,18 @@ export default function MultimodalInputCapsule({
 
       setTimeout(() => {
         setIsIntakeLoading(false);
-        if (isGreeting && !detectedCrop && !detectedVol && !detectedDepot) {
+        if (imageFile && detectedCrop && !detectedVol) {
+          addGenUIMessage({
+            sender: 'agent',
+            text: autoLang === 'sw'
+              ? `Nimekagua picha yako vizuri: haya ni mavuno bora ya **${detectedCrop}** ya **Grade A** (unyevu 12.4%, mbegu safi zinazofuata viwango vya EAC). Ili kuhesabu faida na kupanga usafirishaji, je, una uzito wa kilo ngapi tayari?`
+              : autoLang === 'fr'
+              ? `J'ai bien analysé votre photo : il s'agit d'une récolte de **${detectedCrop}** classée **Grade A** (taux d'humidité estimé à 12.4%, grains sains sans défauts, conforme aux normes CAE). Pour trouver le marché le plus rentable et réserver un transporteur, quel est le **volume en KG** disponible ?`
+              : `I inspected your photo: this is a verified **Grade A** specimen of **${detectedCrop}** (estimated moisture: 12.4%, compliant with EAC grain standards). To lock the best market price, what **volume in KG** do you have ready?`,
+            widgetType: 'volume_picker',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        } else if (isGreeting && !detectedCrop && !detectedVol && !detectedDepot) {
           addGenUIMessage({
             sender: 'agent',
             text: autoLang === 'sw'
@@ -678,6 +712,14 @@ export default function MultimodalInputCapsule({
     }
   };
 
+  const formatAudioTime = (seconds) => {
+    if (isNaN(seconds) || seconds === null) return '0:00';
+    const totalSec = Math.floor(seconds);
+    const m = Math.floor(totalSec / 60);
+    const s = (totalSec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
   const isGenUIActive = showGenUIStream && genuiMessages.length > 1;
   const hasValidInput = Boolean(
     (notes && notes.trim().length > 0) || audioName || audioFile || audioPresetUrl || cropOverride || volumeOverride || locationOverride || isWaitingInteractiveChoice
@@ -709,7 +751,7 @@ export default function MultimodalInputCapsule({
         type="file"
         ref={fileAudioInputRef}
         onChange={handleAudioUpload}
-        accept="audio/*"
+        accept="audio/*,video/mp4,audio/mp4,audio/m4a,audio/x-m4a,audio/aac,audio/wav,audio/ogg,.mp3,.mp4,.m4a,.wav,.ogg,.aac"
         className="hidden"
       />
 

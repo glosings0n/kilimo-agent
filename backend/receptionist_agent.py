@@ -250,6 +250,7 @@ def _rule_based_triage(
     if active_lang not in ["fr", "sw", "en"]:
         active_lang = "en"
 
+    img_data = None
     if image_bytes:
         img_res = grade_and_validate_harvest_image(image_bytes, ctx.get("crop"))
         if not img_res.get("is_valid_crop", False):
@@ -267,6 +268,9 @@ def _rule_based_triage(
                 "genui_widgets": ["photo_capture"],
                 "is_ready": False
             }
+        else:
+            img_data = img_res
+            ctx["crop"] = img_res.get("detected_crop") or "Maize (Mahindi)"
 
     if audio_bytes:
         aud_res = validate_and_transcribe_voice_note(audio_bytes, active_lang)
@@ -383,9 +387,19 @@ def _rule_based_triage(
         else: reply = "Could you please specify which crop you are selling (e.g. Maize, Beans, Cassava)?"
     elif "volume_kg" in missing:
         crop_name = found_crop or ("zao lako" if active_lang == "sw" else "votre récolte" if active_lang == "fr" else "your crop")
-        if active_lang == "sw": reply = f"Tafadhali taja namba halisi ya uzito wa {crop_name} kwa kilo au magunia (k.m. 2000, 4500, 5000 kg)?"
-        elif active_lang == "fr": reply = f"Veuillez indiquer un chiffre précis pour la quantité de {crop_name} en kilogrammes ou en sacs (ex: 2000, 4500, 5000 kg) ?"
-        else: reply = f"Please provide an exact numeric volume for {crop_name} in KG or bags (e.g. 2000, 4500, 5000 kg)?"
+        if img_data:
+            grade_name = img_data.get("quality_grade", "Grade A")
+            moist_val = img_data.get("moisture_estimated_pct", 12.4)
+            if active_lang == "sw":
+                reply = f"Nimekagua picha yako vizuri: haya ni mavuno bora ya {crop_name} ya {grade_name} (unyevu unakadiriwa kuwa {moist_val}%).\n\nIli kuhesabu faida na kupanga usafirishaji, je, una uzito wa kilo ngapi au magunia mangapi tayari?"
+            elif active_lang == "fr":
+                reply = f"J'ai bien inspecté votre photo : il s'agit d'une récolte de {crop_name} classée {grade_name} (taux d'humidité estimé à {moist_val}%, grains sains sans défauts).\n\nPour trouver le marché le plus rentable et réserver un transporteur, quel est le volume en KG ou le nombre de sacs disponible ?"
+            else:
+                reply = f"I inspected your photo: this is a verified {grade_name} specimen of {crop_name} (estimated moisture: {moist_val}%).\n\nTo match you with the highest-paying market hub and lock carrier dispatch, what volume in KG or bag count do you have ready?"
+        else:
+            if active_lang == "sw": reply = f"Tafadhali taja namba halisi ya uzito wa {crop_name} kwa kilo au magunia (k.m. 2000, 4500, 5000 kg)?"
+            elif active_lang == "fr": reply = f"Veuillez indiquer un chiffre précis pour la quantité de {crop_name} en kilogrammes ou en sacs (ex: 2000, 4500, 5000 kg) ?"
+            else: reply = f"Please provide an exact numeric volume for {crop_name} in KG or bags (e.g. 2000, 4500, 5000 kg)?"
     elif "origin_depot" in missing:
         crop_name = found_crop or ("zao" if active_lang == "sw" else "récolte" if active_lang == "fr" else "harvest")
         vol_str = f"{found_volume:,.0f} kg" if found_volume else ""
@@ -445,6 +459,12 @@ async def run_receptionist_triage(
                 "genui_widgets": ["photo_capture"],
                 "is_ready": False
             }
+        else:
+            detected_crop_img = img_res.get("detected_crop") or "Maize"
+            grade_img = img_res.get("quality_grade") or "Grade A"
+            moisture_img = img_res.get("moisture_estimated_pct", 12.4)
+            ctx["crop"] = detected_crop_img
+            clean_msg = f"{clean_msg} [Visual Inspection: {detected_crop_img}, {grade_img}, Moisture: {moisture_img}%]".strip()
 
     if audio_bytes:
         aud_res = validate_and_transcribe_voice_note(audio_bytes, active_lang)

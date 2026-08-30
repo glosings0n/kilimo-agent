@@ -1,8 +1,9 @@
 import os
 import shutil
 import uuid
+import json
 from typing import Optional, Dict, Any
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from agent import process_multimodal_harvest_request, process_conversational_intake
@@ -59,25 +60,94 @@ def health_check():
 
 
 @app.post("/api/v1/intake/chat")
-async def conversational_intake_chat(payload: IntakeChatRequest):
+async def conversational_intake_chat(
+    request: Request,
+    user_id: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
+    message: Optional[str] = Form(None),
+    preferred_language: Optional[str] = Form(None),
+    lang: Optional[str] = Form(None),
+    current_params: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    audio: Optional[UploadFile] = File(None),
+    image_url: Optional[str] = Form(None),
+    audio_url: Optional[str] = Form(None),
+    execute_on_ready: Optional[bool] = Form(True)
+):
     """
     Receptionist & Triage Chat Endpoint:
-    Accepts farmer messages, performs multi-turn variable extraction,
+    Accepts farmer messages, multimodal images & audios, performs intelligent variable extraction & visual analysis,
     returns conversational replies with Generative UI (GenUI) widget metadata.
     """
+    content_type = request.headers.get("content-type", "")
+    
+    target_user_id = user_id
+    target_session_id = session_id
+    target_msg = message or ""
+    target_lang = lang or preferred_language or "auto"
+    target_params = {}
+    target_image_bytes = None
+    target_audio_bytes = None
+    target_execute = True if execute_on_ready is None else execute_on_ready
+
+    if content_type.startswith("application/json"):
+        try:
+            body = await request.json()
+            target_user_id = body.get("user_id", "farmer_1")
+            target_session_id = body.get("session_id", "session_1")
+            target_msg = body.get("message", "")
+            target_lang = body.get("preferred_language") or body.get("lang") or "auto"
+            target_params = body.get("current_params") or {}
+            target_execute = body.get("execute_on_ready", True)
+            img_url = body.get("image_url") or body.get("image")
+            if img_url and os.path.exists(img_url):
+                try:
+                    with open(img_url, "rb") as f:
+                        target_image_bytes = f.read()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    else:
+        if current_params and str(current_params).strip():
+            try:
+                target_params = json.loads(current_params)
+            except Exception:
+                target_params = {}
+        
+        if image and image.filename:
+            target_image_bytes = await image.read()
+        elif image_url and os.path.exists(image_url):
+            try:
+                with open(image_url, "rb") as f:
+                    target_image_bytes = f.read()
+            except Exception:
+                pass
+
+        if audio and audio.filename:
+            target_audio_bytes = await audio.read()
+        elif audio_url and os.path.exists(audio_url):
+            try:
+                with open(audio_url, "rb") as f:
+                    target_audio_bytes = f.read()
+            except Exception:
+                pass
+
     try:
         result = await process_conversational_intake(
-            user_id=payload.user_id or "farmer_1",
-            session_id=payload.session_id or "session_1",
-            message=payload.message,
-            current_params=payload.current_params or {},
-            preferred_language=payload.lang or "auto",
-            execute_on_ready=payload.execute_on_ready if payload.execute_on_ready is not None else True
+            user_id=target_user_id or "farmer_1",
+            session_id=target_session_id or "session_1",
+            message=target_msg,
+            current_params=target_params,
+            image_source=target_image_bytes,
+            audio_source=target_audio_bytes,
+            preferred_language=target_lang,
+            execute_on_ready=target_execute
         )
         return {
             "success": True,
-            "user_id": payload.user_id,
-            "session_id": payload.session_id,
+            "user_id": target_user_id,
+            "session_id": target_session_id,
             "reply": result.get("reply"),
             "intent": result.get("intent"),
             "detected_language": result.get("detected_language"),

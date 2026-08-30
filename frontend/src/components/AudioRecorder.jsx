@@ -227,7 +227,7 @@ export default function AudioRecorder({
           <span className="truncate">{t.audioUpload}</span>
           <input
             type="file"
-            accept="audio/*,video/mp4,video/webm"
+            accept="audio/*,video/mp4,audio/mp4,audio/m4a,audio/x-m4a,audio/aac,audio/wav,audio/ogg,.mp3,.mp4,.m4a,.wav,.ogg,.aac"
             onChange={handleFileUpload}
             className="hidden"
           />

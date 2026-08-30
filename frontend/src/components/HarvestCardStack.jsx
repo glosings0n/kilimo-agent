@@ -862,7 +862,7 @@ export default function HarvestCardStack({
                       <span className="text-[10px] text-slate-500 mt-0.5">MP3, WAV, M4A or Vernacular Note</span>
                       <input
                         type="file"
-                        accept="audio/*"
+                        accept="audio/*,video/mp4,audio/mp4,audio/m4a,audio/x-m4a,audio/aac,audio/wav,audio/ogg,.mp3,.mp4,.m4a,.wav,.ogg,.aac"
                         onChange={(e) => {
                           const file = e.target.files[0];
                           if (file) {
