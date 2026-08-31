@@ -139,195 +139,196 @@ async def live_websocket_endpoint(websocket: WebSocket):
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     
     try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        await websocket.send_json({"type": "error", "message": "google-genai SDK package is missing on server."})
-        await websocket.close()
-        return
-
-    client = None
-    if api_key:
         try:
-            client = genai.Client(api_key=api_key)
-        except Exception as err:
-            client = None
-
-    if not client:
-        # Attempt fallback to Google Cloud Vertex AI ADC
-        try:
-            project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "kilimoagent")
-            location = os.getenv("GEMINI_LOCATION", "us-central1")
-            client = genai.Client(vertexai=True, project=project_id, location=location)
-        except Exception as err:
-            await websocket.send_json({
-                "type": "error", 
-                "message": f"GEMINI_API_KEY environment variable is not configured on server (or missing in backend/.env). Error: {str(err)}"
-            })
+            from google import genai
+            from google.genai import types
+        except ImportError:
+            await websocket.send_json({"type": "error", "message": "google-genai SDK package is missing on server."})
             await websocket.close()
             return
 
-    system_instruction = (
-        "You are KilimoAgent, an empathetic, expert agricultural AI assistant serving smallholder farmers in East Africa. "
-        "You speak naturally, warmly, and concisely in French, Swahili, or English depending on what language the user speaks. "
-        "Your mission is to help farmers evaluate their harvested crops (maize, cassava, coffee, beans, tomatoes, etc.), "
-        "estimate harvest volumes in KG or bags, suggest nearby high-paying depots or markets for arbitrage, and assist with freight dispatch. "
-        "Keep your live spoken responses concise, friendly, and direct."
-    )
+        client = None
+        if api_key:
+            try:
+                client = genai.Client(api_key=api_key)
+            except Exception as err:
+                client = None
 
-    config = types.LiveConnectConfig(
-        response_modalities=[types.Modality.AUDIO],
-        system_instruction=types.Content(parts=[types.Part(text=system_instruction)]),
-        input_audio_transcription=types.AudioTranscriptionConfig(),
-        output_audio_transcription=types.AudioTranscriptionConfig()
-    )
-
-    model_candidates = [
-        "gemini-2.0-flash-exp",
-        "gemini-2.0-flash-realtime-exp",
-        "gemini-2.0-flash",
-        "gemini-3.1-flash-live-preview"
-    ]
-
-    session_established = False
-    last_err = None
-
-    for model_name in model_candidates:
-        try:
-            async with client.aio.live.connect(model=model_name, config=config) as session:
-                session_established = True
-                
-                # Notify client of successful connection with model name
+        if not client:
+            # Attempt fallback to Google Cloud Vertex AI ADC
+            try:
+                project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "kilimoagent")
+                location = os.getenv("GEMINI_LOCATION", "us-central1")
+                client = genai.Client(vertexai=True, project=project_id, location=location)
+            except Exception as err:
                 await websocket.send_json({
-                    "type": "connection_ack",
-                    "status": "CONNECTED",
-                    "session_id": session_id,
-                    "model": model_name
+                    "type": "error", 
+                    "message": f"GEMINI_API_KEY environment variable is not configured on server (or missing in backend/.env). Error: {str(err)}"
                 })
+                await websocket.close()
+                return
 
-                async def forward_client_to_gemini():
-                    """Reads WebSocket messages from React client and sends to Gemini Live session."""
-                    try:
-                        while True:
-                            data_text = await websocket.receive_text()
-                            if not data_text:
-                                continue
-                            
-                            try:
-                                payload = json.loads(data_text)
-                            except Exception:
-                                continue
+        system_instruction = (
+            "You are KilimoAgent, an empathetic, expert agricultural AI assistant serving smallholder farmers in East Africa. "
+            "You speak naturally, warmly, and concisely in French, Swahili, or English depending on what language the user speaks. "
+            "Your mission is to help farmers evaluate their harvested crops (maize, cassava, coffee, beans, tomatoes, etc.), "
+            "estimate harvest volumes in KG or bags, suggest nearby high-paying depots or markets for arbitrage, and assist with freight dispatch. "
+            "Keep your live spoken responses concise, friendly, and direct."
+        )
 
-                            event_type = payload.get("type", "")
+        config = types.LiveConnectConfig(
+            response_modalities=[types.Modality.AUDIO],
+            system_instruction=types.Content(parts=[types.Part(text=system_instruction)]),
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig()
+        )
 
-                            # 1. Handle 16kHz PCM Audio Stream
-                            if event_type == "audio_pcm" or payload.get("audio_base64"):
-                                b64_audio = payload.get("audio_base64") or payload.get("data")
-                                if b64_audio:
-                                    audio_bytes = base64.b64decode(b64_audio)
-                                    await session.send_realtime_input(
-                                        audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
-                                    )
+        model_candidates = [
+            "gemini-2.0-flash-exp",
+            "gemini-2.0-flash-realtime-exp",
+            "gemini-2.0-flash",
+            "gemini-3.1-flash-live-preview"
+        ]
 
-                            # 2. Handle JPEG Vision/Camera Frame
-                            elif event_type == "image_frame" or payload.get("image_base64"):
-                                b64_img = payload.get("image_base64") or payload.get("data")
-                                if b64_img:
-                                    img_bytes = base64.b64decode(b64_img)
-                                    await session.send_realtime_input(
-                                        video=types.Blob(data=img_bytes, mime_type="image/jpeg")
-                                    )
+        session_established = False
+        last_err = None
 
-                            # 3. Handle Text Input Message
-                            elif event_type == "text_message" or payload.get("text"):
-                                user_text = payload.get("text") or payload.get("message")
-                                if user_text:
-                                    await session.send_realtime_input(text=user_text)
+        for model_name in model_candidates:
+            try:
+                async with client.aio.live.connect(model=model_name, config=config) as session:
+                    session_established = True
+                    
+                    # Notify client of successful connection with model name
+                    await websocket.send_json({
+                        "type": "connection_ack",
+                        "status": "CONNECTED",
+                        "session_id": session_id,
+                        "model": model_name
+                    })
 
-                    except WebSocketDisconnect:
-                        pass
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception as e:
-                        print(f"[WS Forward Error]: {e}")
+                    async def forward_client_to_gemini():
+                        """Reads WebSocket messages from React client and sends to Gemini Live session."""
+                        try:
+                            while True:
+                                data_text = await websocket.receive_text()
+                                if not data_text:
+                                    continue
+                                
+                                try:
+                                    payload = json.loads(data_text)
+                                except Exception:
+                                    continue
 
-                async def forward_gemini_to_client():
-                    """Receives streaming events from Gemini Live session and sends to React client."""
-                    try:
-                        async for response in session.receive():
-                            content = response.server_content
-                            if not content:
-                                continue
+                                event_type = payload.get("type", "")
 
-                            # Audio response chunks (24kHz raw PCM)
-                            if content.model_turn and content.model_turn.parts:
-                                for part in content.model_turn.parts:
-                                    if part.inline_data and part.inline_data.data:
-                                        pcm_b64 = base64.b64encode(part.inline_data.data).decode("utf-8")
-                                        await websocket.send_json({
-                                            "type": "audio_chunk",
-                                            "data": pcm_b64,
-                                            "mime_type": "audio/pcm;rate=24000"
-                                        })
+                                # 1. Handle 16kHz PCM Audio Stream
+                                if event_type == "audio_pcm" or payload.get("audio_base64"):
+                                    b64_audio = payload.get("audio_base64") or payload.get("data")
+                                    if b64_audio:
+                                        audio_bytes = base64.b64decode(b64_audio)
+                                        await session.send_realtime_input(
+                                            audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+                                        )
 
-                            # Input transcription (Farmer speech)
-                            if content.input_transcription and content.input_transcription.text:
-                                await websocket.send_json({
-                                    "type": "input_transcription",
-                                    "text": content.input_transcription.text
-                                })
+                                # 2. Handle JPEG Vision/Camera Frame
+                                elif event_type == "image_frame" or payload.get("image_base64"):
+                                    b64_img = payload.get("image_base64") or payload.get("data")
+                                    if b64_img:
+                                        img_bytes = base64.b64decode(b64_img)
+                                        await session.send_realtime_input(
+                                            video=types.Blob(data=img_bytes, mime_type="image/jpeg")
+                                        )
 
-                            # Output transcription (Gemini speech)
-                            if content.output_transcription and content.output_transcription.text:
-                                await websocket.send_json({
-                                    "type": "output_transcription",
-                                    "text": content.output_transcription.text
-                                })
+                                # 3. Handle Text Input Message
+                                elif event_type == "text_message" or payload.get("text"):
+                                    user_text = payload.get("text") or payload.get("message")
+                                    if user_text:
+                                        await session.send_realtime_input(text=user_text)
 
-                            # User interrupted AI speech signal
-                            if content.interrupted:
-                                await websocket.send_json({"type": "interrupted"})
+                        except WebSocketDisconnect:
+                            pass
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as e:
+                            print(f"[WS Forward Error]: {e}")
 
-                            # Turn completed
-                            if content.turn_complete:
-                                await websocket.send_json({"type": "turn_complete"})
+                    async def forward_gemini_to_client():
+                        """Receives streaming events from Gemini Live session and sends to React client."""
+                        try:
+                            async for response in session.receive():
+                                content = response.server_content
+                                if not content:
+                                    continue
 
-                    except WebSocketDisconnect:
-                        pass
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception as e:
-                        print(f"[WS Receive Error]: {e}")
+                                # Audio response chunks (24kHz raw PCM)
+                                if content.model_turn and content.model_turn.parts:
+                                    for part in content.model_turn.parts:
+                                        if part.inline_data and part.inline_data.data:
+                                            pcm_b64 = base64.b64encode(part.inline_data.data).decode("utf-8")
+                                            await websocket.send_json({
+                                                "type": "audio_chunk",
+                                                "data": pcm_b64,
+                                                "mime_type": "audio/pcm;rate=24000"
+                                            })
 
-                # Run both streaming tasks concurrently
-                task_fwd = asyncio.create_task(forward_client_to_gemini())
-                task_rev = asyncio.create_task(forward_gemini_to_client())
+                                # Input transcription (Farmer speech)
+                                if content.input_transcription and content.input_transcription.text:
+                                    await websocket.send_json({
+                                        "type": "input_transcription",
+                                        "text": content.input_transcription.text
+                                    })
 
-                done, pending = await asyncio.wait(
-                    [task_fwd, task_rev],
-                    return_when=asyncio.FIRST_COMPLETED
-                )
+                                # Output transcription (Gemini speech)
+                                if content.output_transcription and content.output_transcription.text:
+                                    await websocket.send_json({
+                                        "type": "output_transcription",
+                                        "text": content.output_transcription.text
+                                    })
 
-                for task in pending:
-                    task.cancel()
+                                # User interrupted AI speech signal
+                                if content.interrupted:
+                                    await websocket.send_json({"type": "interrupted"})
 
-                break  # Successful session completed, exit candidate loop
+                                # Turn completed
+                                if content.turn_complete:
+                                    await websocket.send_json({"type": "turn_complete"})
 
-        except Exception as err:
-            err_msg = str(err)
-            print(f"[Gemini Live WS] Model candidate '{model_name}' failed: {err_msg}")
-            last_err = err
-            if "was not found" in err_msg.lower() or "1008" in err_msg or "404" in err_msg:
-                continue  # Try next candidate
-            else:
-                break
+                        except WebSocketDisconnect:
+                            pass
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as e:
+                            print(f"[WS Receive Error]: {e}")
 
-    if not session_established and last_err:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"Could not establish Gemini Live session with available models. Error: {str(last_err)}"
-        })
-        await websocket.close()
+                    # Run both streaming tasks concurrently
+                    task_fwd = asyncio.create_task(forward_client_to_gemini())
+                    task_rev = asyncio.create_task(forward_gemini_to_client())
+
+                    done, pending = await asyncio.wait(
+                        [task_fwd, task_rev],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+
+                    for task in pending:
+                        task.cancel()
+
+                    break  # Successful session completed, exit candidate loop
+
+            except Exception as err:
+                err_msg = str(err)
+                print(f"[Gemini Live WS] Model candidate '{model_name}' failed: {err_msg}")
+                last_err = err
+                if "was not found" in err_msg.lower() or "1008" in err_msg or "404" in err_msg:
+                    continue  # Try next candidate
+                else:
+                    break
+
+        if not session_established and last_err:
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Could not establish Gemini Live session with available models. Error: {str(last_err)}"
+            })
+            await websocket.close()
 
     except WebSocketDisconnect:
         print(f"[WS LIVE] Client disconnected: {session_id}")
