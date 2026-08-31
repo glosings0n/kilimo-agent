@@ -6,14 +6,10 @@ import {
   Video,
   VideoOff,
   Activity,
-  Zap,
   Volume2,
   Camera,
-  Loader2,
-  Sparkles,
   Radio,
-  Send,
-  RefreshCw
+  Send
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 
@@ -32,7 +28,7 @@ export default function GeminiLiveModal({
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [transcripts, setTranscripts] = useState([]);
-  const [audioLevel, setAudioLevel] = useState([20, 45, 70, 90, 60, 30, 80, 50, 65, 40]);
+  const [audioLevel, setAudioLevel] = useState([15, 25, 40, 60, 35, 20, 50, 30, 45, 25]);
 
   const videoRef = useRef(null);
   const videoStreamRef = useRef(null);
@@ -64,17 +60,20 @@ export default function GeminiLiveModal({
   }, [transcripts]);
 
   const getEffectiveWsUrl = useCallback(() => {
-    let httpUrl = backendUrl;
-    if (!httpUrl && typeof window !== 'undefined') {
-      if (window.location.hostname.includes('run.app')) {
-        httpUrl = 'https://kilimo-backend-840262173056.us-central1.run.app';
-      } else {
-        httpUrl = 'http://localhost:8000';
-      }
+    if (backendUrl) {
+      const wsScheme = backendUrl.startsWith('https') ? 'wss' : 'ws';
+      const cleanHost = backendUrl.replace(/^https?:\/\//, '');
+      return `${wsScheme}://${cleanHost}/api/v1/live/ws`;
     }
-    const wsScheme = httpUrl.startsWith('https') ? 'wss' : 'ws';
-    const cleanHost = httpUrl.replace(/^https?:\/\//, '');
-    return `${wsScheme}://${cleanHost}/api/v1/live/ws`;
+    if (typeof window !== 'undefined') {
+      const isHttps = window.location.protocol === 'https:';
+      const wsScheme = isHttps ? 'wss' : 'ws';
+      if (window.location.hostname.includes('run.app')) {
+        return `wss://kilimo-backend-840262173056.us-central1.run.app/api/v1/live/ws`;
+      }
+      return `${wsScheme}://${window.location.hostname}:8000/api/v1/live/ws`;
+    }
+    return 'ws://localhost:8000/api/v1/live/ws';
   }, [backendUrl]);
 
   // Stop all playback audio
@@ -177,6 +176,9 @@ export default function GeminiLiveModal({
       };
 
       setIsAiSpeaking(true);
+
+      // Animate visualizer when AI is speaking
+      setAudioLevel(prev => prev.map((_, i) => Math.floor(25 + Math.random() * 65)));
     } catch (err) {
       console.warn('[Gemini Live Audio Playback Error]:', err);
     }
@@ -204,7 +206,10 @@ export default function GeminiLiveModal({
       scriptProcessorRef.current = processor;
 
       processor.onaudioprocess = (e) => {
-        if (isMutedRef.current || ws.readyState !== WebSocket.OPEN) return;
+        if (isMutedRef.current) {
+          setAudioLevel([10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
+          return;
+        }
 
         const float32 = e.inputBuffer.getChannelData(0);
         // Convert Float32 -> Int16
@@ -216,17 +221,27 @@ export default function GeminiLiveModal({
           sum += Math.abs(s);
         }
 
-        // Live visualizer level
-        const avg = sum / float32.length;
-        if (avg > 0.01) {
-          setAudioLevel(prev => prev.map(() => Math.floor(20 + Math.random() * 70)));
+        const avgVolume = sum / float32.length;
+
+        // Dynamic audio wave visualizer calculation
+        if (avgVolume > 0.005) {
+          const scaled = Math.min(1, avgVolume * 15);
+          setAudioLevel(prev => prev.map((_, idx) => {
+            const wave = Math.sin((Date.now() / 120) + idx * 0.6) * 0.5 + 0.5;
+            return Math.max(12, Math.floor(scaled * 75 * wave + Math.random() * 10));
+          }));
+        } else {
+          setAudioLevel(prev => prev.map(val => Math.max(10, Math.floor(val * 0.8))));
         }
 
-        // Base64 encode Int16 PCM bytes
+        if (ws.readyState !== WebSocket.OPEN) return;
+
+        // Base64 encode Int16 PCM bytes safely
         const bytes = new Uint8Array(int16.buffer);
         let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
+        const chunkSize = 0x4000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
         }
         const b64Pcm = btoa(binary);
 
@@ -306,17 +321,19 @@ export default function GeminiLiveModal({
     setConnectionStatus('connecting');
 
     const wsUrl = getEffectiveWsUrl();
+    console.log('[Gemini Live WS Connecting]:', wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      console.log('[Gemini Live WS Connected]');
       setConnectionStatus('connected');
       initMicrophoneCapture(ws);
     };
 
     ws.onmessage = (event) => {
       try {
-        const payload = JSON.loads(event.data);
+        const payload = JSON.parse(event.data);
 
         if (payload.type === 'audio_chunk' && payload.data) {
           playPcm24kChunk(payload.data);
@@ -342,6 +359,7 @@ export default function GeminiLiveModal({
           setTranscripts(prev => prev.map(t => ({ ...t, isInterim: false })));
         } else if (payload.type === 'error') {
           console.error('[Gemini Live Server Error]:', payload.message);
+          setConnectionStatus('error');
         }
       } catch (e) {
         console.warn('[WebSocket Payload Parse Error]:', e);
@@ -379,16 +397,16 @@ export default function GeminiLiveModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 animate-fade-in">
       <canvas ref={canvasRef} className="hidden" />
 
-      <div className="relative w-full max-w-4xl h-[90vh] bg-slate-900 border border-emerald-500/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
+      <div className="relative w-full max-w-4xl h-[90vh] bg-slate-900 border border-emerald-600/40 rounded-3xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
         
         {/* Top Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur-sm z-10">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 z-10">
           <div className="flex items-center space-x-3">
-            <div className="relative flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 shadow-lg shadow-emerald-500/20">
-              <GeminiIcon className="w-6 h-6 text-white animate-pulse" />
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-2xl bg-emerald-600 shadow-md">
+              <GeminiIcon className="w-6 h-6 text-white" />
               <span className="absolute -top-1 -right-1 flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
@@ -396,15 +414,15 @@ export default function GeminiLiveModal({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="font-bold text-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
-                  Gemini 3.1 Flash Live
+                <h3 className="font-bold text-lg text-emerald-400">
+                  Gemini Live Session
                 </h3>
                 <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Bidirectional Audio & Vision
+                  Audio & Vision Live
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Low-latency voice dialogue & real-time crop grading
+                Direct voice dialogue & crop inspection
               </p>
             </div>
           </div>
@@ -421,7 +439,7 @@ export default function GeminiLiveModal({
                   }}
                   className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
                     selectedLang === code
-                      ? 'bg-emerald-500 text-white shadow-md'
+                      ? 'bg-emerald-600 text-white shadow-md'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -442,7 +460,7 @@ export default function GeminiLiveModal({
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
           
-          {/* Left / Vision Feed */}
+          {/* Left / Vision Feed & Audio Wave */}
           <div className="w-full md:w-1/2 p-4 flex flex-col items-center justify-center bg-slate-950/60 border-b md:border-b-0 md:border-r border-slate-800 relative">
             <div className="relative w-full h-full max-h-[380px] rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center shadow-inner group">
               <video
@@ -458,17 +476,17 @@ export default function GeminiLiveModal({
               {!isVideoLive && (
                 <div className="flex flex-col items-center text-center p-6 space-y-3">
                   <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 shadow-inner">
-                    <Camera className="w-8 h-8 text-slate-500" />
+                    <Camera className="w-8 h-8 text-slate-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-slate-300">Live Camera Feed Offline</p>
-                    <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                      Enable your camera for real-time visual inspection & AI grading of your harvest.
+                    <p className="text-sm font-medium text-slate-200">Camera Off</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                      Enable your camera to show your harvest or field to Gemini.
                     </p>
                   </div>
                   <button
                     onClick={toggleCameraStream}
-                    className="mt-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-600/20 transition-all"
+                    className="mt-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl flex items-center space-x-2 shadow-md transition-all"
                   >
                     <Video className="w-4 h-4" />
                     <span>Turn On Camera</span>
@@ -477,28 +495,28 @@ export default function GeminiLiveModal({
               )}
 
               {isVideoLive && (
-                <div className="absolute top-3 left-3 flex items-center space-x-2 bg-slate-950/70 backdrop-blur-md px-3 py-1.5 rounded-full border border-emerald-500/30">
+                <div className="absolute top-3 left-3 flex items-center space-x-2 bg-slate-950/80 px-3 py-1.5 rounded-full border border-emerald-500/30">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                  <span className="text-xs font-medium text-emerald-300">Live Vision Feed (1 FPS)</span>
+                  <span className="text-xs font-medium text-emerald-300">Live Vision (1 FPS)</span>
                 </div>
               )}
             </div>
 
             {/* Audio Live Waveform Visualizer */}
-            <div className="w-full mt-4 bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col items-center justify-center space-y-2">
-              <div className="flex items-center space-x-1 h-12 px-4">
+            <div className="w-full mt-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col items-center justify-center space-y-2">
+              <div className="flex items-center space-x-1.5 h-12 px-4">
                 {audioLevel.map((height, idx) => (
                   <div
                     key={idx}
-                    className={`w-1.5 rounded-full transition-all duration-150 ${
+                    className={`w-2 rounded-full transition-all duration-150 ${
                       isAiSpeaking
-                        ? 'bg-gradient-to-t from-teal-500 to-emerald-400'
+                        ? 'bg-teal-400'
                         : isMuted
                         ? 'bg-slate-700'
-                        : 'bg-emerald-500/60'
+                        : 'bg-emerald-500'
                     }`}
                     style={{
-                      height: isMuted ? '8px' : `${Math.max(8, isAiSpeaking ? height * 1.2 : height * 0.6)}px`
+                      height: isMuted ? '8px' : `${Math.max(8, height)}px`
                     }}
                   />
                 ))}
@@ -522,14 +540,14 @@ export default function GeminiLiveModal({
           </div>
 
           {/* Right / Live Transcripts Panel */}
-          <div className="w-full md:w-1/2 flex flex-col bg-slate-900/40 p-4 relative">
+          <div className="w-full md:w-1/2 flex flex-col bg-slate-900/60 p-4 relative">
             <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-slate-800">
               {transcripts.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 space-y-2">
-                  <Radio className="w-10 h-10 text-emerald-500/40 animate-pulse" />
-                  <p className="text-sm font-medium">Bidirectional Audio Active</p>
-                  <p className="text-xs max-w-xs">
-                    Start speaking in Swahili, French, or English. Transcripts will stream live below.
+                  <Radio className="w-10 h-10 text-emerald-500 animate-pulse" />
+                  <p className="text-sm font-medium text-slate-300">Live Voice Connected</p>
+                  <p className="text-xs max-w-xs text-slate-400">
+                    Speak in French, Swahili, or English. Transcripts will stream live below.
                   </p>
                 </div>
               )}
@@ -542,7 +560,7 @@ export default function GeminiLiveModal({
                   }`}
                 >
                   <div className="flex items-center space-x-1.5 mb-1 text-[11px] text-slate-400 font-medium">
-                    <span>{t.sender === 'farmer' ? '👨‍🌾 Farmer' : '✨ Gemini Live'}</span>
+                    <span>{t.sender === 'farmer' ? 'Farmer' : 'Gemini Live'}</span>
                     <span>•</span>
                     <span>{t.time}</span>
                   </div>
@@ -550,8 +568,8 @@ export default function GeminiLiveModal({
                   <div
                     className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                       t.sender === 'farmer'
-                        ? 'bg-emerald-600 text-white rounded-tr-none shadow-md'
-                        : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-tl-none shadow-md'
+                        ? 'bg-emerald-600 text-white rounded-tr-none shadow-sm'
+                        : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-tl-none shadow-sm'
                     }`}
                   >
                     {t.text}
@@ -569,13 +587,13 @@ export default function GeminiLiveModal({
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSendTextMessage()}
-                  placeholder="Type a message or just speak naturally..."
+                  placeholder="Type a message or speak into your microphone..."
                   className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
                 />
                 <button
                   onClick={handleSendTextMessage}
                   disabled={!textInput.trim()}
-                  className="p-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl transition-all shadow-md shadow-emerald-600/20"
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl transition-all shadow-md"
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -587,8 +605,8 @@ export default function GeminiLiveModal({
                     onClick={() => setIsMuted(!isMuted)}
                     className={`p-3 rounded-2xl border transition-all ${
                       isMuted
-                        ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
-                        : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                        ? 'bg-rose-900/40 border-rose-500/50 text-rose-300'
+                        : 'bg-emerald-900/40 border-emerald-500/50 text-emerald-300'
                     }`}
                   >
                     {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
@@ -598,7 +616,7 @@ export default function GeminiLiveModal({
                     onClick={toggleCameraStream}
                     className={`p-3 rounded-2xl border transition-all ${
                       isVideoLive
-                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                        ? 'bg-emerald-900/40 border-emerald-500/50 text-emerald-300'
                         : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
                     }`}
                   >
@@ -622,3 +640,4 @@ export default function GeminiLiveModal({
     </div>
   );
 }
+
