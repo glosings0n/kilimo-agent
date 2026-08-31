@@ -9,7 +9,7 @@ PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "kilimoagent")
 LOCATION = os.getenv("GEMINI_LOCATION", os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
 API_KEY = os.getenv("GEMINI_API_KEY")
 
-MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"]
+MODEL_CANDIDATES = ["gemini-3.6-flash", "gemini-3.1-flash", "gemini-2.5-flash"]
 
 def _get_genai_clients() -> List[genai.Client]:
     """Returns available GenAI clients in order of preference."""

@@ -185,12 +185,14 @@ async def live_websocket_endpoint(websocket: WebSocket):
 
         if api_key:
             model_candidates = [
+                "gemini-3.6-flash",
                 "gemini-3.1-flash-live-preview",
                 "gemini-2.0-flash-exp",
                 "gemini-2.0-flash"
             ]
         else:
             model_candidates = [
+                "gemini-3.6-flash",
                 "gemini-2.0-flash-exp",
                 "gemini-2.0-flash"
             ]
