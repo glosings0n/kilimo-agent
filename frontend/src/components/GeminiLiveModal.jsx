@@ -223,7 +223,6 @@ export default function GeminiLiveModal({
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          sampleRate: 16000,
           echoCancellation: true,
           noiseSuppression: true
         }
@@ -231,11 +230,15 @@ export default function GeminiLiveModal({
       micStreamRef.current = stream;
 
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const audioCtx = new AudioCtx({ sampleRate: 16000 });
+      const audioCtx = new AudioCtx();
       inAudioCtxRef.current = audioCtx;
 
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+
       const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       scriptProcessorRef.current = processor;
 
       processor.onaudioprocess = (e) => {
@@ -245,26 +248,42 @@ export default function GeminiLiveModal({
         }
 
         const float32 = e.inputBuffer.getChannelData(0);
-        // Convert Float32 -> Int16
-        const int16 = new Int16Array(float32.length);
+
+        // Resample to 16000Hz PCM if hardware operates at a different sample rate
+        let samples16k = float32;
+        if (audioCtx.sampleRate !== 16000) {
+          const ratio = audioCtx.sampleRate / 16000;
+          const newLength = Math.round(float32.length / ratio);
+          samples16k = new Float32Array(newLength);
+          for (let i = 0; i < newLength; i++) {
+            const originIdx = i * ratio;
+            const idx = Math.floor(originIdx);
+            const nextIdx = Math.min(idx + 1, float32.length - 1);
+            const interp = originIdx - idx;
+            samples16k[i] = float32[idx] * (1 - interp) + float32[nextIdx] * interp;
+          }
+        }
+
+        // Convert Float32 -> Int16 PCM
+        const int16 = new Int16Array(samples16k.length);
         let sum = 0;
-        for (let i = 0; i < float32.length; i++) {
-          const s = Math.max(-1, Math.min(1, float32[i]));
+        for (let i = 0; i < samples16k.length; i++) {
+          const s = Math.max(-1, Math.min(1, samples16k[i]));
           int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
           sum += Math.abs(s);
         }
 
-        const avgVolume = sum / float32.length;
+        const avgVolume = sum / samples16k.length;
 
         // Dynamic audio wave visualizer calculation
-        if (avgVolume > 0.005) {
-          const scaled = Math.min(1, avgVolume * 15);
+        if (avgVolume > 0.002) {
+          const scaled = Math.min(1, avgVolume * 30);
           setAudioLevel(prev => prev.map((_, idx) => {
-            const wave = Math.sin((Date.now() / 120) + idx * 0.6) * 0.5 + 0.5;
-            return Math.max(12, Math.floor(scaled * 75 * wave + Math.random() * 10));
+            const wave = Math.sin((Date.now() / 100) + idx * 0.5) * 0.5 + 0.5;
+            return Math.max(14, Math.floor(scaled * 85 * wave + Math.random() * 15));
           }));
         } else {
-          setAudioLevel(prev => prev.map(val => Math.max(10, Math.floor(val * 0.8))));
+          setAudioLevel(prev => prev.map(val => Math.max(10, Math.floor(val * 0.85))));
         }
 
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
