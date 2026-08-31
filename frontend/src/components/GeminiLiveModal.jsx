@@ -34,7 +34,7 @@ export default function GeminiLiveModal({
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [interimSpeech, setInterimSpeech] = useState('');
-  const [liveTextInput, setLiveTextInput] = useState('');
+
   const [connectionStatus, setConnectionStatus] = useState('listening'); // 'connecting' | 'listening' | 'user_speaking' | 'processing' | 'speaking'
   const [audioLevel, setAudioLevel] = useState([20, 45, 70, 90, 60, 30, 80, 50, 65, 40]);
   const [detectedSpecimen, setDetectedSpecimen] = useState(null);
@@ -526,13 +526,7 @@ export default function GeminiLiveModal({
     };
   }, [isOpen, startMicrophoneAndSpeech, stopAllMedia]);
 
-  const handleLiveTextSubmit = (e) => {
-    if (e) e.preventDefault();
-    if (!liveTextInput.trim()) return;
-    const text = liveTextInput.trim();
-    setLiveTextInput('');
-    handleFarmerSpeech(text);
-  };
+
 
   if (!isOpen) return null;
 
@@ -564,7 +558,7 @@ export default function GeminiLiveModal({
               <p className="text-[11px] sm:text-xs text-slate-400 truncate">
                 {isInitializing 
                   ? (selectedLang === 'fr' ? 'Initialisation...' : selectedLang === 'sw' ? 'Inaunganisha...' : 'Connecting...')
-                  : (selectedLang === 'fr' ? 'Micro actif • Parlez ou écrivez' : selectedLang === 'sw' ? 'Maikrofoni ipo tayari • Ongea au andika' : 'Microphone Active • Speak or type')}
+                  : (selectedLang === 'fr' ? 'Flux vocal bidirectionnel actif' : selectedLang === 'sw' ? 'Mtiririko wa sauti hai' : 'Bidirectional voice stream active')}
               </p>
             </div>
           </div>
@@ -780,7 +774,7 @@ export default function GeminiLiveModal({
                   ) : (
                     <span className="text-emerald-300 flex items-center gap-1.5">
                       <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-                      {selectedLang === 'fr' ? "Prêt • Parlez ou écrivez" : selectedLang === 'sw' ? "Tayari • Ongea au andika" : "Ready • Speak or type"}
+                      {selectedLang === 'fr' ? "Prêt • Parlez naturellement" : selectedLang === 'sw' ? "Tayari • Ongea kwa kawaida" : "Ready • Speak naturally"}
                     </span>
                   )}
                 </div>
@@ -826,16 +820,6 @@ export default function GeminiLiveModal({
         </div>
 
         <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2">
-            <form onSubmit={handleLiveTextSubmit} className="flex gap-2">
-                <input
-                    type="text"
-                    value={liveTextInput}
-                    onChange={(e) => setLiveTextInput(e.target.value)}
-                    placeholder={selectedLang === 'sw' ? "Andika hapa..." : selectedLang === 'fr' ? "Écrivez ici..." : "Type your message..."}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
-                <button type="submit" className="bg-emerald-500 px-3 py-2 rounded-xl text-xs font-bold text-slate-950">Send</button>
-            </form>
             
             <div className="flex items-center justify-between gap-2">
               <button

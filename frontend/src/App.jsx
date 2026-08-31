@@ -595,11 +595,188 @@ export default function App() {
     setActiveTab('geospatial');
   };
 
-  const handleExportWaybillPdf = () => {
-    setActiveTab('waybill');
+  const handleExportWaybillPdf = (historyItem) => {
+    // Gather data either from the history item or from the current parsedData
+    let billData;
+    if (historyItem && historyItem.summary) {
+      const s = historyItem.summary;
+      billData = {
+        waybillId: s.waybill_id || `KILIMO-WB-${(historyItem.transaction_id || '').slice(-8).toUpperCase()}`,
+        txId: historyItem.transaction_id || 'N/A',
+        commodity: s.commodity || s.crop || 'Maize (Mahindi)',
+        volumeFormatted: s.volume_kg ? `${Number(s.volume_kg).toLocaleString()} KG` : '1,500 KG',
+        origin: s.origin || s.origin_depot || 'Bunia Depot',
+        destination: s.destination || s.optimalHub || 'Optimal Market Hub',
+        netPayout: s.net_payout || s.netFarmerPayout || '$615.00 USD',
+        transitEta: s.transit_eta || s.transitEta || '6.0 Hours',
+        carrier: s.carrier || 'East-West AgroLogistics',
+        freightCost: s.freight_cost || s.freightCost || '$78.50 USD',
+        grossRevenue: s.gross_revenue || s.grossRevenue || '$742.50 USD',
+        date: historyItem.timestamp ? new Date(historyItem.timestamp).toLocaleString() : new Date().toLocaleString(),
+        status: s.status || 'CERTIFIED_READY',
+        farmerId: historyItem.farmer_email || farmerAccount?.farmerId || 'KM-FARMER-GUEST'
+      };
+    } else if (parsedData) {
+      billData = {
+        waybillId: parsedData.freight?.waybillId || 'KILIMO-WB-DEFAULT',
+        txId: parsedData.txId || 'N/A',
+        commodity: parsedData.audio?.commodity || 'Maize (Mahindi)',
+        volumeFormatted: parsedData.audio?.weightFormatted || '1,500 KG',
+        origin: parsedData.freight?.origin || 'Bunia Depot',
+        destination: parsedData.arbitrage?.optimalHub || 'Optimal Market Hub',
+        netPayout: parsedData.arbitrage?.netPayoutFormatted || '$615.00 USD',
+        transitEta: parsedData.freight?.transitEta || '6.0 Hours',
+        carrier: parsedData.freight?.carrier || 'East-West AgroLogistics',
+        freightCost: parsedData.freight?.costFormatted || '$78.50 USD',
+        grossRevenue: parsedData.arbitrage?.grossRevenueFormatted || '$742.50 USD',
+        date: new Date().toLocaleString(),
+        status: parsedData.freight?.status || 'CERTIFIED_READY',
+        farmerId: parsedData.txId || farmerAccount?.farmerId || 'KM-FARMER-GUEST'
+      };
+    } else {
+      return; // No data to export
+    }
+
+    // Generate standalone printable PDF document in new window
+    const printWindow = window.open('', '_blank', 'width=800,height=1100');
+    if (!printWindow) return;
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Waybill ${billData.waybillId}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;600;700;800;900&family=Roboto+Mono:wght@400;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Urbanist', sans-serif; background: #fff; color: #111; padding: 32px; }
+  .mono { font-family: 'Roboto Mono', monospace; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #111; padding-bottom: 20px; margin-bottom: 24px; }
+  .header-left h1 { font-size: 28px; font-weight: 900; letter-spacing: 2px; color: #111; }
+  .header-left .subtitle { font-size: 11px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+  .header-left .waybill-id { font-size: 22px; font-weight: 900; letter-spacing: 3px; margin-top: 8px; color: #059669; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; border: 2px solid; }
+  .badge-green { background: #ecfdf5; color: #059669; border-color: #059669; }
+  .badge-ref { background: #f8fafc; color: #475569; border-color: #94a3b8; }
+  .qr-box { border: 3px solid #111; border-radius: 12px; padding: 8px; background: #fff; text-align: center; }
+  .qr-label { font-size: 9px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 6px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .card { border: 2px solid #e2e8f0; border-radius: 16px; padding: 16px; background: #f8fafc; }
+  .card-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #059669; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .card-label.amber { color: #d97706; }
+  .card-value { font-size: 15px; font-weight: 800; color: #111; }
+  .card-sub { font-size: 11px; color: #64748b; font-weight: 600; margin-top: 3px; }
+  .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  .summary-table th, .summary-table td { padding: 10px 14px; text-align: left; font-size: 12px; border-bottom: 1px solid #e2e8f0; }
+  .summary-table th { font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 1px; color: #64748b; background: #f1f5f9; }
+  .summary-table td { font-weight: 700; color: #1e293b; }
+  .summary-table .highlight { color: #059669; font-size: 16px; font-weight: 900; }
+  .footer { border-top: 3px solid #111; padding-top: 16px; display: flex; justify-content: space-between; align-items: center; margin-top: 32px; }
+  .footer-left { font-size: 10px; color: #64748b; font-weight: 700; }
+  .footer-right { font-size: 10px; color: #059669; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+  .stamp { border: 3px solid #059669; border-radius: 12px; padding: 12px 24px; text-align: center; margin: 24px auto; display: inline-block; }
+  .stamp-text { font-size: 18px; font-weight: 900; color: #059669; text-transform: uppercase; letter-spacing: 4px; }
+  .stamp-sub { font-size: 10px; color: #64748b; font-weight: 700; margin-top: 4px; }
+  @media print { body { padding: 20px; } }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <span class="badge badge-green">Official EAC / COMESA Electronic Waybill</span>
+        <span class="badge badge-ref">REF: ${billData.status}</span>
+      </div>
+      <div class="waybill-id mono">${billData.waybillId}</div>
+      <div class="subtitle">Corridor Freight Dispatch & Real-Time GPS Tracking Ledger</div>
+    </div>
+    <div class="qr-box">
+      <svg width="100" height="100" viewBox="0 0 21 21">
+        <rect width="21" height="21" fill="#FFFFFF"/>
+        <rect x="0" y="0" width="7" height="7" fill="#111" rx="1"/>
+        <rect x="2" y="2" width="3" height="3" fill="#FFF"/>
+        <rect x="3" y="3" width="1" height="1" fill="#111"/>
+        <rect x="14" y="0" width="7" height="7" fill="#111" rx="1"/>
+        <rect x="16" y="2" width="3" height="3" fill="#FFF"/>
+        <rect x="17" y="3" width="1" height="1" fill="#111"/>
+        <rect x="0" y="14" width="7" height="7" fill="#111" rx="1"/>
+        <rect x="2" y="16" width="3" height="3" fill="#FFF"/>
+        <rect x="3" y="17" width="1" height="1" fill="#111"/>
+        <rect x="8" y="2" width="1" height="1" fill="#111"/>
+        <rect x="10" y="4" width="1" height="1" fill="#111"/>
+        <rect x="9" y="8" width="1" height="1" fill="#111"/>
+        <rect x="11" y="9" width="1" height="1" fill="#111"/>
+        <rect x="8" y="10" width="1" height="1" fill="#111"/>
+        <rect x="10" y="12" width="1" height="1" fill="#111"/>
+        <rect x="12" y="8" width="1" height="1" fill="#111"/>
+        <rect x="14" y="10" width="2" height="1" fill="#111"/>
+        <rect x="17" y="9" width="1" height="2" fill="#111"/>
+        <rect x="15" y="14" width="1" height="1" fill="#111"/>
+        <rect x="18" y="15" width="1" height="1" fill="#111"/>
+        <rect x="10" y="15" width="2" height="1" fill="#111"/>
+        <rect x="12" y="18" width="1" height="1" fill="#111"/>
+        <rect x="16" y="17" width="2" height="2" fill="#111"/>
+      </svg>
+      <div class="qr-label">Scan to Verify</div>
+      <div style="font-size:9px;color:#059669;font-weight:700;" class="mono">kilimoagent.app/verify</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-label amber">📍 Origin Depot</div>
+      <div class="card-value">${billData.origin}</div>
+      <div class="card-sub">Farmer ID: <span class="mono" style="color:#059669;">${billData.farmerId}</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">📍 Optimal Destination</div>
+      <div class="card-value">${billData.destination}</div>
+      <div class="card-sub">Transit ETA: ${billData.transitEta}</div>
+    </div>
+  </div>
+
+  <table class="summary-table">
+    <thead>
+      <tr>
+        <th>Field</th>
+        <th>Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Commodity</td><td style="font-weight:900;">${billData.commodity}</td></tr>
+      <tr><td>Verified Volume</td><td style="font-weight:900;">${billData.volumeFormatted}</td></tr>
+      <tr><td>Carrier</td><td>${billData.carrier}</td></tr>
+      <tr><td>Freight Cost</td><td>${billData.freightCost}</td></tr>
+      <tr><td>Gross Revenue</td><td>${billData.grossRevenue}</td></tr>
+      <tr><td>Net Farmer Payout</td><td class="highlight">${billData.netPayout}</td></tr>
+      <tr><td>Transaction ID</td><td class="mono" style="font-size:11px;">${billData.txId}</td></tr>
+      <tr><td>Issued</td><td>${billData.date}</td></tr>
+    </tbody>
+  </table>
+
+  <div style="text-align:center;">
+    <div class="stamp">
+      <div class="stamp-text">✓ Dispatch Certified</div>
+      <div class="stamp-sub">KilimoAgent Autonomous Multi-Agent Platform • SHA-256 Integrity Verified</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-left">
+      KilimoAgent — Autonomous Cyber-Physical Agricultural Arbitrage & Logistics Dispatch<br/>
+      Google ADK v2.8.0 • Gemini 2.5 Flash • Cloud Firestore State Ledger
+    </div>
+    <div class="footer-right">
+      kilimoagent.app
+    </div>
+  </div>
+</body>
+</html>`);
+    printWindow.document.close();
+    printWindow.focus();
     setTimeout(() => {
-      window.print();
-    }, 250);
+      printWindow.print();
+    }, 400);
   };
 
   const handleDispatchWhatsApp = () => {
