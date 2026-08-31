@@ -637,11 +637,18 @@ export default function App() {
       return; // No data to export
     }
 
-    // Generate standalone printable PDF document in new window
-    const printWindow = window.open('', '_blank', 'width=800,height=1100');
-    if (!printWindow) return;
+    // Use a hidden iframe to trigger print dialog without opening a new tab
+    const existingFrame = document.getElementById('kilimo-pdf-frame');
+    if (existingFrame) existingFrame.remove();
 
-    printWindow.document.write(`<!DOCTYPE html>
+    const iframe = document.createElement('iframe');
+    iframe.id = 'kilimo-pdf-frame';
+    iframe.style.cssText = 'position:fixed;top:-10000px;left:-10000px;width:800px;height:1100px;border:none;';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -677,7 +684,6 @@ export default function App() {
   .stamp { border: 3px solid #059669; border-radius: 12px; padding: 12px 24px; text-align: center; margin: 24px auto; display: inline-block; }
   .stamp-text { font-size: 18px; font-weight: 900; color: #059669; text-transform: uppercase; letter-spacing: 4px; }
   .stamp-sub { font-size: 10px; color: #64748b; font-weight: 700; margin-top: 4px; }
-  @media print { body { padding: 20px; } }
 </style>
 </head>
 <body>
@@ -772,11 +778,17 @@ export default function App() {
   </div>
 </body>
 </html>`);
-    printWindow.document.close();
-    printWindow.focus();
+    doc.close();
+
+    // Wait for fonts to load, then trigger print dialog only
     setTimeout(() => {
-      printWindow.print();
-    }, 400);
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      // Clean up iframe after printing
+      setTimeout(() => {
+        iframe.remove();
+      }, 1000);
+    }, 500);
   };
 
   const handleDispatchWhatsApp = () => {
