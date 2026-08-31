@@ -24,7 +24,7 @@ from state.firestore_manager import KilimoStateManager
 from guardrails.gemma_guard import GemmaModelArmor
 from receptionist_agent import run_receptionist_triage, kilimo_receptionist_agent
 
-from config.models import DEFAULT_GEMINI_MODEL as MODEL_NAME
+from config.models import API_GEMINI_MODEL as MODEL_NAME
 
 load_dotenv()
 

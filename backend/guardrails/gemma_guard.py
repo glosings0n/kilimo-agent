@@ -237,7 +237,7 @@ Respond ONLY with a valid JSON object (no markdown formatting, no backticks):
   "explanation": "Rationale for classification"
 }}"""
 
-        models_to_try = [GEMMA_MODEL_ID, "gemini-2.5-flash", "gemini-2.0-flash", "gemma-2-27b-it"]
+        models_to_try = [GEMMA_MODEL_ID, "gemini-3.6-flash", "gemma-2-27b-it"]
         for model_id in models_to_try:
             try:
                 response = self.client.models.generate_content(

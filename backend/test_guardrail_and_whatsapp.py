@@ -125,7 +125,7 @@ class TestGemmaGuardrailAndWhatsApp(unittest.TestCase):
     def test_whatsapp_simulate_json_french(self):
         payload = {
             "phone_number": "+243991234567",
-            "message_text": "Bonjour, j'ai 1500 kg de manioc à Goma, merci de confirmer le transport.",
+            "message_text": "Bonjour, j'ai 1500 kg de manioc à Goma pour expédition au marché frontalier, merci de confirmer le transport.",
             "language": "fr",
             "crop": "cassava",
             "volume_kg": 1500.0,

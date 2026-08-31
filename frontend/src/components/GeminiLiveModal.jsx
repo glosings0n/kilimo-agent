@@ -12,7 +12,9 @@ import {
   Camera,
   Loader2,
   Sparkles,
-  Radio
+  Radio,
+  Send,
+  RefreshCw
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 import { voiceAgent } from '../utils/audioSynthesizer';
@@ -33,7 +35,9 @@ export default function GeminiLiveModal({
   const [isInitializing, setIsInitializing] = useState(true);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [interimSpeech, setInterimSpeech] = useState('');
+  const [textInput, setTextInput] = useState('');
 
   const [connectionStatus, setConnectionStatus] = useState('listening'); // 'connecting' | 'listening' | 'user_speaking' | 'processing' | 'speaking'
   const [audioLevel, setAudioLevel] = useState([20, 45, 70, 90, 60, 30, 80, 50, 65, 40]);
@@ -50,7 +54,10 @@ export default function GeminiLiveModal({
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const micStreamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   const recognitionRef = useRef(null);
+  const wsRef = useRef(null);
   const transcriptsEndRef = useRef(null);
   const animationFrameRef = useRef(null);
 
@@ -59,7 +66,6 @@ export default function GeminiLiveModal({
   const isAiSpeakingRef = useRef(false);
   const isProcessingRef = useRef(false);
   const cooldownUntilRef = useRef(0);
-  const lastAgentUtterancesRef = useRef([]);
   const gainNodeRef = useRef(null);
 
   const hasInitializedRef = useRef(false);
@@ -67,12 +73,14 @@ export default function GeminiLiveModal({
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
   const isMutedRef = useRef(isMuted);
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  const isRecordingAudioRef = useRef(isRecordingAudio);
+  useEffect(() => { isRecordingAudioRef.current = isRecordingAudio; }, [isRecordingAudio]);
 
   useEffect(() => {
     setSelectedLang(lang);
   }, [lang]);
 
-  const getEffectiveBackend = () => {
+  const getEffectiveBackend = useCallback(() => {
     if (backendUrl && backendUrl.length > 0) return backendUrl;
     if (typeof window !== 'undefined') {
       if (window.location.hostname.includes('run.app')) {
@@ -80,7 +88,7 @@ export default function GeminiLiveModal({
       }
     }
     return 'http://localhost:8000';
-  };
+  }, [backendUrl]);
 
   const initialGreetingMap = {
     sw: "Habari mkulima! Niko hewani kupitia Gemini Live API. Unaweza kueleza mazao yako kwa sauti na kufungua kamera yako kwa ukaguzi wa haraka.",
@@ -104,10 +112,24 @@ export default function GeminiLiveModal({
     }
     isAiSpeakingRef.current = false;
     cooldownUntilRef.current = 0;
-    lastAgentUtterancesRef.current = [];
     gainNodeRef.current = null;
     setIsAiSpeaking(false);
     setIsProcessing(false);
+    setIsRecordingAudio(false);
+
+    if (wsRef.current) {
+      try { wsRef.current.close(); } catch (e) {}
+      wsRef.current = null;
+    }
+
+    if (mediaRecorderRef.current) {
+      try {
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch (e) {}
+      mediaRecorderRef.current = null;
+    }
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
@@ -167,19 +189,30 @@ export default function GeminiLiveModal({
     setConnectionStatus('speaking');
 
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch (e) {}
+      try { recognitionRef.current.abort(); } catch (e) {}
     }
 
-    lastAgentUtterancesRef.current = [
-      replyText,
-      ...(lastAgentUtterancesRef.current || []).slice(0, 3)
-    ];
-
     const targetLang = detectedLang || selectedLang;
+
+    // Guaranteed safety watchdog to release lock if audio ends or hangs
+    const estWords = (replyText || '').split(' ').length;
+    const maxDurationMs = Math.max(4000, estWords * 450);
+    const safetyWatchdog = setTimeout(() => {
+      if (isAiSpeakingRef.current) {
+        console.warn("[Live Voice Watchdog]: Safety reset of AI speaking state.");
+        isAiSpeakingRef.current = false;
+        setIsAiSpeaking(false);
+        setConnectionStatus('listening');
+        if (isOpenRef.current && !isMutedRef.current && recognitionRef.current) {
+          try { recognitionRef.current.start(); } catch (e) {}
+        }
+        if (onComplete) onComplete();
+      }
+    }, maxDurationMs);
+
     voiceAgent.speak(replyText, targetLang, () => {
-      const cooldownMs = 700;
+      clearTimeout(safetyWatchdog);
+      const cooldownMs = 400;
       cooldownUntilRef.current = Date.now() + cooldownMs;
 
       setTimeout(() => {
@@ -188,9 +221,7 @@ export default function GeminiLiveModal({
         setConnectionStatus('listening');
 
         if (isOpenRef.current && !isMutedRef.current && recognitionRef.current) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) {}
+          try { recognitionRef.current.start(); } catch (e) {}
         }
 
         if (onComplete) onComplete();
@@ -198,9 +229,14 @@ export default function GeminiLiveModal({
     });
   }, [selectedLang]);
 
-  const handleFarmerSpeech = useCallback(async (spokenText) => {
-    const cleanText = (spokenText || '').trim();
-    if (!cleanText || isProcessingRef.current || cleanText.length < 2) return;
+  // Submit Farmer Input (Text or Audio Blob)
+  const submitFarmerPayload = useCallback(async ({ messageText = '', audioBlob = null, imageBlob = null }) => {
+    if (isProcessingRef.current || isAiSpeakingRef.current) {
+      return;
+    }
+    if (!messageText.trim() && (!audioBlob || audioBlob.size < 300) && (!imageBlob || imageBlob.size < 300)) {
+      return;
+    }
 
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
@@ -209,53 +245,65 @@ export default function GeminiLiveModal({
     accumulatedSpeechRef.current = '';
     setInterimSpeech('');
 
-    const lower = cleanText.toLowerCase();
     let currentEffectiveLang = selectedLang;
-    if (
-      /(salut|bonjour|bonsoir|coucou|je\s|j['’]ai|donne|quoi|faire|recolte|récolte|mais|maïs|manioc|café|haricots|tomates|patate|dépôt|depot|prix|combien|kilos|sacs|tonnes|merci|vente|culture)/i.test(lower)
-    ) {
-      currentEffectiveLang = 'fr';
-    } else if (
-      /(habari|jambo|hujambo|mambo|niaje|sasa|vipi|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari|kilo|tani|karibu)/i.test(lower)
-    ) {
-      currentEffectiveLang = 'sw';
-    } else if (
-      /(hello|hi|hey|good\s|morning|evening|afternoon|i\s+have|crop|harvest|maize|cassava|coffee|beans|tomatoes|depot|price|market|bags|tons|kilograms)/i.test(lower)
-    ) {
-      currentEffectiveLang = 'en';
-    }
-
-    if (currentEffectiveLang !== selectedLang) {
-      setSelectedLang(currentEffectiveLang);
-      if (setLang) setLang(currentEffectiveLang);
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.lang = currentEffectiveLang === 'fr' ? 'fr-FR' : currentEffectiveLang === 'sw' ? 'sw-TZ' : 'en-US';
-        } catch (e) {}
+    if (messageText) {
+      const lower = messageText.toLowerCase();
+      if (/(salut|bonjour|bonsoir|coucou|je\s|j['’]ai|donne|quoi|faire|recolte|récolte|mais|maïs|manioc|café|haricots|tomates|patate|dépôt|depot|prix|combien|kilos|sacs|tonnes|merci|vente|culture)/i.test(lower)) {
+        currentEffectiveLang = 'fr';
+      } else if (/(habari|jambo|hujambo|mambo|niaje|sasa|vipi|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari|kilo|tani|karibu)/i.test(lower)) {
+        currentEffectiveLang = 'sw';
+      } else if (/(hello|hi|hey|good\s|morning|evening|afternoon|i\s+have|crop|harvest|maize|cassava|coffee|beans|tomatoes|depot|price|market|bags|tons|kilograms)/i.test(lower)) {
+        currentEffectiveLang = 'en';
       }
-    }
 
-    setTranscripts(prev => [
-      ...prev,
-      { sender: 'farmer', text: cleanText, time: 'Live' }
-    ]);
+      if (currentEffectiveLang !== selectedLang) {
+        setSelectedLang(currentEffectiveLang);
+        if (setLang) setLang(currentEffectiveLang);
+      }
+
+      setTranscripts(prev => [
+        ...prev,
+        { sender: 'farmer', text: messageText, time: 'Live' }
+      ]);
+    } else if (audioBlob && audioBlob.size > 0) {
+      setTranscripts(prev => [
+        ...prev,
+        { sender: 'farmer', text: '🎤 [Voice Note Audio Recorded]', time: 'Live' }
+      ]);
+    }
 
     setIsProcessing(true);
     isProcessingRef.current = true;
     setConnectionStatus('processing');
 
+    const watchdog = setTimeout(() => {
+      if (isProcessingRef.current) {
+        console.warn("[Live Submit Watchdog]: Request timed out, releasing lock.");
+        isProcessingRef.current = false;
+        setIsProcessing(false);
+        setConnectionStatus('listening');
+      }
+    }, 12000);
+
     try {
       const activeBackend = getEffectiveBackend();
+      const formData = new FormData();
+      formData.append('session_id', 'live_session_' + Date.now());
+      formData.append('user_id', 'live_farmer');
+      formData.append('lang', currentEffectiveLang);
+      formData.append('message', messageText || '');
+      formData.append('current_params', JSON.stringify(liveParams));
+
+      if (audioBlob && audioBlob.size > 0) {
+        formData.append('audio', audioBlob, 'live_voice.webm');
+      }
+      if (imageBlob && imageBlob.size > 0) {
+        formData.append('image', imageBlob, 'live_harvest.jpg');
+      }
+
       const response = await fetch(`${activeBackend}/api/v1/live/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: 'live_session_' + Date.now(),
-          user_id: 'live_farmer',
-          message: cleanText,
-          current_params: liveParams,
-          lang: currentEffectiveLang
-        })
+        body: formData
       });
 
       if (response.ok) {
@@ -267,7 +315,7 @@ export default function GeminiLiveModal({
           currentEffectiveLang = detectedBackendLang;
         }
 
-        const reply = data.reply || (currentEffectiveLang === 'fr' ? "Information bien reçue." : currentEffectiveLang === 'sw' ? "Taarifa imerekodiwa." : "Information recorded.");
+        const reply = data.reply || (currentEffectiveLang === 'fr' ? "Taarifa bien reçue." : currentEffectiveLang === 'sw' ? "Taarifa imerekodiwa." : "Information recorded.");
 
         if (data.action === "TERMINATE_SESSION" || data.is_terminated) {
           setTranscripts(prev => [
@@ -276,9 +324,7 @@ export default function GeminiLiveModal({
           ]);
           playAiResponse(reply, currentEffectiveLang, () => {
             stopAllMedia();
-            setTimeout(() => {
-              onClose();
-            }, 1200);
+            setTimeout(() => { onClose(); }, 1200);
           });
           return;
         }
@@ -302,10 +348,10 @@ export default function GeminiLiveModal({
     } catch (err) {
       console.warn("[Live Chat API Fallback]:", err);
       const fallbackReply = currentEffectiveLang === 'sw'
-        ? `Nimepokea: "${cleanText}". Tafadhali taja zao lako na uzito (KG).`
+        ? `Nimepokea sauti yako. Tafadhali taja zao lako na uzito (KG).`
         : currentEffectiveLang === 'fr'
-        ? `Bien reçu : "${cleanText}". Veuillez préciser votre récolte et le volume en KG.`
-        : `Got it: "${cleanText}". Please specify your crop and volume in KG.`;
+        ? `Vocal bien reçu. Veuillez préciser votre récolte et le volume en KG.`
+        : `Voice note received. Please specify your crop and volume in KG.`;
 
       setTranscripts(prev => [
         ...prev,
@@ -314,38 +360,70 @@ export default function GeminiLiveModal({
 
       playAiResponse(fallbackReply, currentEffectiveLang);
     } finally {
+      clearTimeout(watchdog);
       setIsProcessing(false);
       isProcessingRef.current = false;
     }
   }, [getEffectiveBackend, liveParams, onClose, playAiResponse, selectedLang, setLang, stopAllMedia]);
 
+  // Audio Recording Helper
+  const startAudioRecording = useCallback(() => {
+    if (!micStreamRef.current || isRecordingAudio) return;
+    try {
+      audioChunksRef.current = [];
+      const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? { mimeType: 'audio/webm;codecs=opus' }
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? { mimeType: 'audio/webm' }
+        : {};
+
+      const mediaRecorder = new MediaRecorder(micStreamRef.current, options);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.start(100);
+      mediaRecorderRef.current = mediaRecorder;
+      setIsRecordingAudio(true);
+    } catch (e) {
+      console.warn("[MediaRecorder Start Error]:", e);
+    }
+  }, [isRecordingAudio]);
+
+  const stopAudioRecording = useCallback(() => {
+    return new Promise((resolve) => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.onstop = () => {
+          setIsRecordingAudio(false);
+          let audioBlob = null;
+          if (audioChunksRef.current.length > 0) {
+            const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+            audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+            audioChunksRef.current = [];
+          }
+          resolve(audioBlob);
+        };
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          setIsRecordingAudio(false);
+          resolve(null);
+        }
+      } else {
+        setIsRecordingAudio(false);
+        resolve(null);
+      }
+    });
+  }, []);
+
   const startMicrophoneAndSpeech = useCallback(async () => {
     setIsInitializing(true);
     setConnectionStatus('connecting');
 
-    // Step 1: Request microphone permission FIRST — this is mandatory
     let micStream = null;
     try {
-      // Check if permission was already granted
-      if (navigator.permissions && navigator.permissions.query) {
-        try {
-          const permResult = await navigator.permissions.query({ name: 'microphone' });
-          if (permResult.state === 'denied') {
-            setConnectionStatus('listening');
-            setIsInitializing(false);
-            setTranscripts(prev => [
-              ...prev,
-              { sender: 'gemini', text: selectedLang === 'fr' 
-                ? '⚠️ Accès au microphone refusé. Veuillez autoriser le micro dans les paramètres de votre navigateur puis réouvrez le Live.'
-                : selectedLang === 'sw'
-                ? '⚠️ Ruhusa ya maikrofoni imekataliwa. Tafadhali ruhusu maikrofoni kwenye mipangilio ya kivinjari chako.'
-                : '⚠️ Microphone access denied. Please allow microphone in your browser settings and reopen Live.', time: 'Live' }
-            ]);
-            return;
-          }
-        } catch (e) { /* permissions API not supported, proceed anyway */ }
-      }
-
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: { ideal: true },
@@ -363,24 +441,22 @@ export default function GeminiLiveModal({
       setTranscripts(prev => [
         ...prev,
         { sender: 'gemini', text: selectedLang === 'fr'
-          ? '⚠️ Impossible d\'accéder au microphone. Veuillez autoriser l\'accès et réessayez.'
+          ? '⚠️ Impossible d\'accéder au microphone. Veuillez autoriser l\'accès.'
           : selectedLang === 'sw'
-          ? '⚠️ Haiwezekani kupata maikrofoni. Tafadhali ruhusu ufikiaji na ujaribu tena.'
-          : '⚠️ Could not access microphone. Please grant permission and try again.', time: 'Live' }
+          ? '⚠️ Haiwezekani kupata maikrofoni. Tafadhali ruhusu ufikiaji.'
+          : '⚠️ Could not access microphone. Please grant permission.', time: 'Live' }
       ]);
       return;
     }
 
-    // If modal was closed during permission prompt, clean up
     if (!isOpenRef.current) {
       micStream.getTracks().forEach(t => t.stop());
       return;
     }
 
-    // Step 2: Mic permission granted — store the stream
     micStreamRef.current = micStream;
 
-    // Step 3: Set up audio visualizer with the mic stream
+    // Web Audio Visualizer
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const source = audioCtx.createMediaStreamSource(micStream);
@@ -408,12 +484,15 @@ export default function GeminiLiveModal({
 
         const bars = [];
         const step = Math.floor(dataArray.length / 10) || 1;
+        let sum = 0;
         for (let i = 0; i < 10; i++) {
           const val = dataArray[i * step] || 0;
+          sum += val;
           const pct = Math.max(15, Math.min(100, Math.floor((val / 255) * 100) + 15));
           bars.push(pct);
         }
         setAudioLevel(bars);
+
         animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
       };
 
@@ -422,7 +501,7 @@ export default function GeminiLiveModal({
       console.warn("[Audio Visualizer Error]:", vizErr);
     }
 
-    // Step 4: Now start SpeechRecognition (mic is already authorized)
+    // SpeechRecognition initialization (if supported)
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       try {
@@ -445,6 +524,7 @@ export default function GeminiLiveModal({
             isAiSpeakingRef.current = false;
             setIsAiSpeaking(false);
           }
+          startAudioRecording();
         };
 
         recognition.onresult = (event) => {
@@ -471,34 +551,35 @@ export default function GeminiLiveModal({
             setConnectionStatus('user_speaking');
 
             if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = setTimeout(() => {
+            silenceTimerRef.current = setTimeout(async () => {
               if (accumulatedSpeechRef.current && accumulatedSpeechRef.current.trim().length >= 2 && !isAiSpeakingRef.current && !isProcessingRef.current) {
                 const textToCommit = accumulatedSpeechRef.current.trim();
-                handleFarmerSpeech(textToCommit);
+                accumulatedSpeechRef.current = '';
+                setInterimSpeech('');
+                const recordedAudio = await stopAudioRecording();
+                submitFarmerPayload({ messageText: textToCommit, audioBlob: recordedAudio });
               }
-            }, 1200);
+            }, 1400);
           }
 
           if (currentFinal.trim()) {
-            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
+              silenceTimerRef.current = null;
+            }
             const finalText = currentFinal.trim();
-            handleFarmerSpeech(finalText);
-          }
-        };
-
-        recognition.onerror = (err) => {
-          console.warn("[Live Speech Error]:", err.error);
-          // If 'not-allowed', the mic permission was revoked — show feedback
-          if (err.error === 'not-allowed') {
-            setTranscripts(prev => [
-              ...prev,
-              { sender: 'gemini', text: '⚠️ Microphone permission revoked. Please re-enable and reopen Live.', time: 'Live' }
-            ]);
+            accumulatedSpeechRef.current = '';
+            setInterimSpeech('');
+            stopAudioRecording().then(recordedAudio => {
+              if (!isAiSpeakingRef.current && !isProcessingRef.current) {
+                submitFarmerPayload({ messageText: finalText, audioBlob: recordedAudio });
+              }
+            });
           }
         };
 
         recognition.onend = () => {
-          if (isOpenRef.current && !isMutedRef.current && !isAiSpeakingRef.current && Date.now() >= cooldownUntilRef.current && recognitionRef.current) {
+          if (isOpenRef.current && !isMutedRef.current && !isAiSpeakingRef.current && !isProcessingRef.current && Date.now() >= cooldownUntilRef.current && recognitionRef.current) {
             try { recognitionRef.current.start(); } catch (e) {}
           }
         };
@@ -510,10 +591,9 @@ export default function GeminiLiveModal({
       }
     }
 
-    // Step 5: Everything initialized — switch to listening state
     setIsInitializing(false);
     setConnectionStatus('listening');
-  }, [handleFarmerSpeech, selectedLang]);
+  }, [selectedLang, startAudioRecording, stopAudioRecording, submitFarmerPayload]);
 
   const toggleCamera = async () => {
     if (isVideoLive) {
@@ -579,8 +659,6 @@ export default function GeminiLiveModal({
     };
   }, [isOpen, startMicrophoneAndSpeech, stopAllMedia]);
 
-
-
   if (!isOpen) return null;
 
   return (
@@ -590,6 +668,7 @@ export default function GeminiLiveModal({
     >
       <div className="relative w-full max-w-2xl bg-[#090D16] border border-slate-800 rounded-3xl overflow-hidden flex flex-col max-h-[92vh]">
         
+        {/* Header Bar */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2">
           <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center font-bold shrink-0">
@@ -606,6 +685,9 @@ export default function GeminiLiveModal({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
                   </span>
                   <span>{MODELS_CONFIG.defaultModelName}</span>
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-mono font-bold shrink-0 border border-emerald-500/20">
+                  Zero Typing
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate">
@@ -627,18 +709,9 @@ export default function GeminiLiveModal({
                     ...prev,
                     { sender: 'gemini', text: initialGreetingMap.fr, time: 'Live' }
                   ]);
-                  if (recognitionRef.current) {
-                    try {
-                      recognitionRef.current.abort();
-                      recognitionRef.current.lang = 'fr-FR';
-                      setTimeout(() => { try { recognitionRef.current?.start(); } catch (e) {} }, 150);
-                    } catch (e) {}
-                  }
                 }}
                 className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                  selectedLang === 'fr'
-                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                  selectedLang === 'fr' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
                 title="Français"
               >
@@ -653,18 +726,9 @@ export default function GeminiLiveModal({
                     ...prev,
                     { sender: 'gemini', text: initialGreetingMap.sw, time: 'Live' }
                   ]);
-                  if (recognitionRef.current) {
-                    try {
-                      recognitionRef.current.abort();
-                      recognitionRef.current.lang = 'sw-TZ';
-                      setTimeout(() => { try { recognitionRef.current?.start(); } catch (e) {} }, 150);
-                    } catch (e) {}
-                  }
                 }}
                 className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                  selectedLang === 'sw'
-                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                  selectedLang === 'sw' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
                 title="Kiswahili"
               >
@@ -679,18 +743,9 @@ export default function GeminiLiveModal({
                     ...prev,
                     { sender: 'gemini', text: initialGreetingMap.en, time: 'Live' }
                   ]);
-                  if (recognitionRef.current) {
-                    try {
-                      recognitionRef.current.abort();
-                      recognitionRef.current.lang = 'en-US';
-                      setTimeout(() => { try { recognitionRef.current?.start(); } catch (e) {} }, 150);
-                    } catch (e) {}
-                  }
                 }}
                 className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                  selectedLang === 'en'
-                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                  selectedLang === 'en' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
                 title="English"
               >
@@ -708,6 +763,7 @@ export default function GeminiLiveModal({
           </div>
         </div>
 
+        {/* Live Audio / Video Display */}
         <div className="p-6 bg-slate-950 border-b border-slate-800 flex flex-col items-center justify-center relative min-h-[220px]">
           
           {isVideoLive ? (
@@ -745,6 +801,10 @@ export default function GeminiLiveModal({
               <div className="relative inline-flex items-center justify-center">
                 <button
                   type="button"
+                  onMouseDown={startAudioRecording}
+                  onMouseUp={stopAudioRecording}
+                  onTouchStart={startAudioRecording}
+                  onTouchEnd={stopAudioRecording}
                   onClick={() => {
                     if (isAiSpeaking) {
                       voiceAgent.stop();
@@ -753,9 +813,6 @@ export default function GeminiLiveModal({
                       }
                       setIsAiSpeaking(false);
                       setConnectionStatus('listening');
-                      setTimeout(() => {
-                        try { recognitionRef.current?.start(); } catch(e) {}
-                      }, 200);
                     } else {
                       setIsMuted(!isMuted);
                     }
@@ -767,11 +824,13 @@ export default function GeminiLiveModal({
                       ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/25 scale-105 animate-pulse' 
                       : isProcessing
                       ? 'bg-amber-500 text-slate-950 animate-pulse'
+                      : isRecordingAudio
+                      ? 'bg-rose-600 text-white animate-bounce scale-110 shadow-lg shadow-rose-600/50'
                       : isMuted
                       ? 'bg-rose-500 text-white'
                       : 'bg-emerald-500 text-slate-950 hover:scale-105 shadow-lg shadow-emerald-500/25'
                   }`}
-                  title={isAiSpeaking ? "Tap to Interrupt" : isMuted ? "Tap to Unmute" : "Listening (Tap to Mute)"}
+                  title={isAiSpeaking ? "Tap to Interrupt" : "Hold to Record Voice or Tap to Mute"}
                 >
                   {isInitializing ? (
                     <Loader2 className="w-9 h-9 animate-spin stroke-[2.2]" />
@@ -779,6 +838,8 @@ export default function GeminiLiveModal({
                     <Loader2 className="w-9 h-9 animate-spin stroke-[2.2]" />
                   ) : isAiSpeaking ? (
                     <Volume2 className="w-9 h-9 stroke-[2.2]" />
+                  ) : isRecordingAudio ? (
+                    <Mic className="w-9 h-9 stroke-[2.2] animate-pulse" />
                   ) : isMuted ? (
                     <MicOff className="w-9 h-9 stroke-[2.2]" />
                   ) : (
@@ -787,6 +848,7 @@ export default function GeminiLiveModal({
                 </button>
               </div>
 
+              {/* Dynamic Equalizer Bar */}
               <div className="flex items-center justify-center gap-1.5 h-10">
                 {audioLevel.map((lvl, idx) => (
                   <div
@@ -796,6 +858,8 @@ export default function GeminiLiveModal({
                         ? 'bg-cyan-400' 
                         : isProcessing
                         ? 'bg-amber-400'
+                        : isRecordingAudio
+                        ? 'bg-rose-400'
                         : isMuted 
                         ? 'bg-slate-800' 
                         : 'bg-emerald-400'
@@ -820,14 +884,19 @@ export default function GeminiLiveModal({
                   ) : isProcessing ? (
                     <span className="text-amber-300 flex items-center gap-1.5">
                       <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                      {selectedLang === 'fr' ? "Analyse..." : selectedLang === 'sw' ? "Inachakata..." : "Analyzing..."}
+                      {selectedLang === 'fr' ? "Analyse Gemini..." : selectedLang === 'sw' ? "Inachakata..." : "Gemini processing..."}
+                    </span>
+                  ) : isRecordingAudio ? (
+                    <span className="text-rose-400 flex items-center gap-1.5 font-mono">
+                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                      {selectedLang === 'fr' ? "Enregistrement en cours..." : selectedLang === 'sw' ? "Inarekodi sauti..." : "Recording voice audio..."}
                     </span>
                   ) : isMuted ? (
                     <span className="text-rose-400">{selectedLang === 'fr' ? "Micro muet" : selectedLang === 'sw' ? "Maikrofoni imezimwa" : "Muted"}</span>
                   ) : (
                     <span className="text-emerald-300 flex items-center gap-1.5">
                       <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-                      {selectedLang === 'fr' ? "Prêt • Parlez naturellement" : selectedLang === 'sw' ? "Tayari • Ongea kwa kawaida" : "Ready • Speak naturally"}
+                      {selectedLang === 'fr' ? "Prêt • Parlez ou maintenez le bouton" : selectedLang === 'sw' ? "Tayari • Ongea au shikilia batani" : "Ready • Speak naturally or hold button"}
                     </span>
                   )}
                 </div>
@@ -845,6 +914,7 @@ export default function GeminiLiveModal({
           )}
         </div>
 
+        {/* Live Conversation Stream Box */}
         <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-3 bg-[#0F172A]/80 min-h-[160px] max-h-[220px]">
           {transcripts.map((msg, i) => (
             <div
@@ -872,13 +942,29 @@ export default function GeminiLiveModal({
           <div ref={transcriptsEndRef} />
         </div>
 
+        {/* Footer Voice Session Controls */}
         <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2">
-            
-            <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800/80 text-xs text-slate-300">
+            <div className="flex items-center space-x-2 truncate">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+              <span className="truncate font-medium">
+                {selectedLang === 'fr'
+                  ? "Interaction 100% Vocale Active — Parlez naturellement dans le microphone"
+                  : selectedLang === 'sw'
+                  ? "Sauti Ipo Wazi — Zungumza kawaida kwenye maikrofoni"
+                  : "100% Voice Mode Active — Speak naturally into the microphone"}
+              </span>
+            </div>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-mono font-bold shrink-0">
+              Live
+            </span>
+          </div>
+
+            <div className="flex items-center justify-between gap-2 pt-1">
               <button
                 type="button"
                 onClick={toggleCamera}
-                className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer whitespace-nowrap ${
+                className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-xs transition cursor-pointer whitespace-nowrap ${
                   isVideoLive
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                     : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
@@ -891,7 +977,7 @@ export default function GeminiLiveModal({
               <button
                 type="button"
                 onClick={() => setIsMuted(!isMuted)}
-                className={`p-2.5 rounded-xl transition cursor-pointer ${
+                className={`p-2 rounded-xl transition cursor-pointer ${
                   isMuted
                     ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                     : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
@@ -910,7 +996,7 @@ export default function GeminiLiveModal({
                   }
                   onClose();
                 }}
-                className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition flex items-center space-x-2 cursor-pointer whitespace-nowrap"
+                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition flex items-center space-x-2 cursor-pointer whitespace-nowrap"
               >
                 <Check className="w-4 h-4" />
                 <span>Commit</span>

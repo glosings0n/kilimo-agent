@@ -33,14 +33,18 @@ def detect_image_mime(data: bytes) -> str:
 
 def detect_audio_mime(data: bytes) -> str:
     if not data:
-        return "audio/mp4"
+        return "audio/webm"
+    if data.startswith(b'\x1a\x45\xdf\xa3') or b'webm' in data[:30].lower():
+        return "audio/webm"
     if data.startswith(b'RIFF') and b'WAVE' in data[:12]:
         return "audio/wav"
     elif data.startswith(b'OggS'):
         return "audio/ogg"
+    elif data.startswith(b'ID3') or data.startswith(b'\xff\xfb') or data.startswith(b'\xff\xf3'):
+        return "audio/mp3"
     elif b'ftyp' in data[:20] or data.startswith(b'\x00\x00\x00'):
         return "audio/mp4"
-    return "audio/mp4"
+    return "audio/webm"
 
 
 def grade_and_validate_harvest_image(image_bytes: bytes, crop_hint: str = None) -> Dict[str, Any]:
@@ -58,8 +62,8 @@ def grade_and_validate_harvest_image(image_bytes: bytes, crop_hint: str = None) 
     prompt = f"""You are an expert agricultural commodity inspector for KilimoAgent.
 Strictly verify if the image represents an agricultural crop or harvest (e.g. maize, cassava, coffee, beans, tomatoes, sorghum, sunflower, rice, sweet potatoes, wheat, tea, avocado, onions, potatoes, vegetables, fruits).
 {f"The user claims this is: {crop_hint}." if crop_hint else ""}
-If the image is a person, selfie, UI screenshot, website, graphic artwork, 3D render, document, dark blurred room, vehicle, animal, or non-agricultural object, return:
-{{ "is_valid_crop": false, "rejection_reason": "L'image ne représente pas une récolte agricole. Veuillez télécharger une photo claire de vos produits agricoles (Maïs, Manioc, Café, Haricots, etc.).", "confidence_score": 0.0, "detected_crop": null, "quality_grade": null, "defect_percentage": null }}
+If the image is a person, selfie, UI screenshot, text message screenshot, website, graphic artwork, 3D render, document, dark blurred room, vehicle, animal, building, or non-agricultural object, return:
+{{ "is_valid_crop": false, "rejection_reason": "L'image ne représente pas une récolte agricole valide. Veuillez télécharger une photo claire de vos produits agricoles (Maïs, Manioc, Café, Haricots, Tomates, etc.).", "confidence_score": 0.0, "detected_crop": null, "quality_grade": null, "defect_percentage": null }}
 
 If valid agricultural crop, return:
 {{ "is_valid_crop": true, "detected_crop": "Maize|Cassava|Coffee|Beans|Tomatoes|...", "quality_grade": "Grade A" or "Grade B" or "Specialty Grade", "defect_percentage": 2.1, "moisture_estimated_pct": 12.4, "aflatoxin_risk": "Low (< 4 ppb)", "notes": "Intact kernels/tubers, clean harvest" }}
@@ -78,28 +82,24 @@ If valid agricultural crop, return:
         )
         if response and response.text:
             parsed = json.loads(response.text.replace("```json", "").replace("```", "").strip())
-            return parsed
+            if isinstance(parsed, dict) and parsed.get("is_valid_crop") is True and parsed.get("detected_crop"):
+                return parsed
+            elif isinstance(parsed, dict):
+                return {
+                    "is_valid_crop": False,
+                    "rejection_reason": parsed.get("rejection_reason") or "L'image ne représente pas une récolte agricole valide.",
+                    "confidence_score": 0.0,
+                    "detected_crop": None,
+                    "quality_grade": None,
+                    "defect_percentage": None
+                }
     except Exception as e:
         print(f"[MULTIMODAL_GRADING] Vision model evaluation error: {e}")
 
-    # If the model call fails and we cannot verify if it is a crop, we do NOT blindly assume Maize.
-    # We inspect if crop_hint was provided by the user.
-    if crop_hint and any(c in crop_hint.lower() for c in ["maize", "mahindi", "cassava", "manioc", "coffee", "kahawa", "beans", "haricots", "tomatoes", "nyanya"]):
-        return {
-            "is_valid_crop": True,
-            "detected_crop": crop_hint.title(),
-            "quality_grade": "Grade A Standard",
-            "defect_percentage": 2.0,
-            "moisture_estimated_pct": 12.5,
-            "aflatoxin_risk": "Low (< 4 ppb)",
-            "notes": "Quality inspected compliant with East African standards.",
-            "confidence_score": 0.90,
-            "inspection_engine": "KilimoVisionKernel"
-        }
-
+    # Strict Security Safeguard: Never validate an unverified image as a crop
     return {
         "is_valid_crop": False,
-        "rejection_reason": "L'image ne représente pas une récolte agricole valide ou est illisible. Veuillez envoyer une photo claire de vos grains ou tubercules.",
+        "rejection_reason": "L'image ne représente pas une récolte agricole valide ou ne peut pas être analysée. Veuillez télécharger une photo nette de vos produits agricoles.",
         "confidence_score": 0.0,
         "detected_crop": None,
         "quality_grade": None,
@@ -119,7 +119,7 @@ def validate_and_transcribe_voice_note(audio_bytes: bytes, lang: str = "en") -> 
     prompt = f"""You are an expert agricultural audio transcription service for KilimoAgent.
 Listen to the audio. Verify if it contains intelligible speech about agricultural harvests, commodities, prices, or logistics.
 Target language hint: {lang}.
-If unintelligible noise, silence, or random background static, return:
+If unintelligible noise, silence, music, ambient static, or non-agricultural non-speech audio, return:
 {{ "is_valid_speech": false, "transcript": "", "rejection_reason": "Message vocal inaudible ou silence. Veuillez réenregistrer." }}
 
 If valid speech, transcribe it and return:
@@ -139,13 +139,21 @@ If valid speech, transcribe it and return:
         )
         if response and response.text:
             parsed = json.loads(response.text.replace("```json", "").replace("```", "").strip())
-            return parsed
+            if isinstance(parsed, dict) and parsed.get("is_valid_speech") is True and parsed.get("transcript"):
+                return parsed
+            elif isinstance(parsed, dict):
+                return {
+                    "is_valid_speech": False,
+                    "transcript": "",
+                    "rejection_reason": parsed.get("rejection_reason") or "Message vocal inaudible ou non pertinent."
+                }
     except Exception as e:
         print(f"[MULTIMODAL_GRADING] Audio transcription error: {e}")
 
+    # Strict Security Safeguard: Never return fake audio transcription
     return {
-        "is_valid_speech": True,
-        "transcript": "Bonjour KilimoAgent, j'ai une cargaison agricole prête pour l'arbitrage et le transport.",
-        "detected_language": lang,
-        "transcription_engine": "KilimoAcousticTranscriber"
+        "is_valid_speech": False,
+        "transcript": "",
+        "rejection_reason": "Le message vocal n'a pas pu être transcrit. Veuillez réenregistrer un vocal clair."
     }
+

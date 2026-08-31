@@ -428,6 +428,10 @@ def resolve_hub(location_name: str) -> Dict[str, Any]:
     clean_name = str(location_name).strip() if location_name else "Goma"
     lower_name = clean_name.lower()
     
+    # Generic terms like auto-arbitrage, optimal hub, or point must resolve to a real trade market
+    if any(term in lower_name for term in ["auto-arbitrage", "optimal", "best profit", "hub", "point", "destination", "unnamed"]):
+        return REGIONAL_HUBS["Nairobi"]
+    
     # Direct match in canonical dictionary
     if clean_name in REGIONAL_HUBS:
         return REGIONAL_HUBS[clean_name]
@@ -442,8 +446,9 @@ def resolve_hub(location_name: str) -> Dict[str, Any]:
         if hub_name.lower() in lower_name or lower_name in hub_name.lower():
             return hub_info
             
-    # Default fallback: Goma
-    return REGIONAL_HUBS["Goma"]
+    # Default fallback: Nairobi (Central East Africa Hub)
+    return REGIONAL_HUBS["Nairobi"]
+
 
 
 def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

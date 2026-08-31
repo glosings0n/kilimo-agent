@@ -1,3 +1,5 @@
+import MODELS_CONFIG from '../config/models';
+
 export function parseExecutionLedger(rawInput, fallbackData = {}) {
   if (!rawInput) return null;
 
@@ -61,7 +63,7 @@ export function parseExecutionLedger(rawInput, fallbackData = {}) {
     },
     state: {
       guardrailVerdict: "SAFE (Gemma 2 9B-IT Sanitized)",
-      primaryModel: "gemini-3.6-flash",
+      primaryModel: MODELS_CONFIG.defaultModelId,
       firestoreStatus: "COMPLETED & AUDITED"
     }
   };

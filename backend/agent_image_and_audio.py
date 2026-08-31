@@ -11,7 +11,7 @@ from state.firestore_manager import KilimoStateManager
 load_dotenv()
 
 # Standard Model & Platform configuration for Gemini Enterprise Agent Platform
-MODEL_NAME = "gemini-3.6-flash"
+from config.models import API_VISION_MODEL as MODEL_NAME
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "kilimoagent")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
 

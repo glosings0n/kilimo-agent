@@ -788,18 +788,17 @@ export function GenUIPhotoQualityCard({
           return;
         }
       }
-      throw new Error("Validation endpoint offline");
+      const errText = await res.text().catch(() => "");
+      throw new Error(errText || "Validation failed");
     } catch (err) {
-      console.warn("Analysis fallback:", err);
-      // Clean fallback
+      console.warn("Analysis validation failed:", err);
       setAnalysisResult({
-        is_valid_crop: true,
-        detected_crop: cropHint || "Maize",
-        quality_grade: "Grade A",
-        defect_percentage: 2.1,
-        moisture_estimated_pct: 12.4,
-        aflatoxin_risk: "Low (< 4 ppb)",
-        notes: "Grains inspectés conformes aux normes CAE."
+        is_valid_crop: false,
+        rejection_reason: lang === 'fr' 
+          ? "Impossible d'authentifier la récolte. Veuillez importer une photo nette de grains de maïs, manioc, café ou haricots."
+          : "Harvest photo could not be authenticated. Please upload a clear photo of agricultural produce.",
+        detected_crop: "Inconnu",
+        quality_grade: "REJETÉ"
       });
     } finally {
       setIsAnalyzing(false);

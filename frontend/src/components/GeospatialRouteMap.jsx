@@ -15,44 +15,67 @@ import GeminiIcon from './GeminiIcon';
 
 // Regional Coordinates Dictionary for East African & Great Lakes Corridor
 const LOCATION_COORDINATES = {
-  // Origin Depots
-  "Bunia Depot": [1.5667, 30.2500],
-  "Bunia": [1.5667, 30.2500],
+  // DRC Hubs & Depots
+  "Bunia Depot": [1.5635, 30.2522],
+  "Bunia": [1.5635, 30.2522],
+  "Ituri": [1.5635, 30.2522],
   "Goma Logistics Center": [-1.6742, 29.2285],
   "Goma": [-1.6742, 29.2285],
   "Bukavu Transit Depot": [-2.5083, 28.8608],
   "Bukavu": [-2.5083, 28.8608],
-  "Kitale Depot": [1.0191, 35.0023],
-  "Kitale": [1.0191, 35.0023],
+  "Butembo": [0.1333, 29.2833],
+  "Beni": [0.4911, 29.4731],
+  "Kisangani": [0.5153, 25.1910],
+  "Kindu": [-2.9437, 25.9224],
+  "Mahagi": [2.3000, 30.9833],
+  "Aru": [2.8667, 30.8500],
+  "Gisenyi": [-1.7028, 29.2564],
+  "Rubavu": [-1.7028, 29.2564],
+
+  // Kenya Hubs & Depots
+  "Kitale Depot": [1.0167, 35.0000],
+  "Kitale": [1.0167, 35.0000],
   "Eldoret Depot": [0.5143, 35.2698],
   "Eldoret": [0.5143, 35.2698],
+  "Eldoret Silos": [0.5200, 35.2800],
+  "Eldoret NCPB Strategic Silos": [0.5200, 35.2800],
   "Nakuru Depot": [-0.3031, 36.0800],
   "Nakuru": [-0.3031, 36.0800],
-  "Gisenyi Border Station": [-1.7028, 29.2564],
-  "Gisenyi": [-1.7028, 29.2564],
-
-  // Destination & Market Hubs
-  "Border Trade Zone": [0.4608, 34.1115], // Busia / Malaba cross-border hub
-  "Border Trade Zone Wholesale Terminal": [0.4608, 34.1115],
-  "Coastal Wholesale Terminal": [-4.0435, 39.6682], // Mombasa
-  "Coastal Wholesale Terminal / Mombasa": [-4.0435, 39.6682],
-  "Central Market Hub": [-1.2921, 36.8219], // Nairobi
-  "Nairobi Central Millers": [-1.2921, 36.8219],
-  "Kampala Agri Terminal": [0.3476, 32.5825],
-  "Kigali Agro Terminal": [-1.9441, 30.0619],
-  "Kisumu Lake Terminal": [-0.0917, 34.7680],
-
-  // Corridor Opportunity Hubs
   "Nakuru Millers": [-0.2833, 36.0667],
   "Nakuru Millers & Feed Mill": [-0.2833, 36.0667],
   "Busia Border": [0.4608, 34.1115],
   "Busia Border Fast-Track": [0.4608, 34.1115],
-  "Eldoret Silos": [0.5200, 35.2800],
-  "Eldoret NCPB Strategic Silos": [0.5200, 35.2800],
-  "Malaba Dry Port": [0.6339, 34.2750]
+  "Busia": [0.4608, 34.1115],
+  "Border Trade Zone": [0.4608, 34.1115],
+  "Border Trade Zone Wholesale Terminal": [0.4608, 34.1115],
+  "Malaba Dry Port": [0.6339, 34.2750],
+  "Malaba": [0.6339, 34.2750],
+  "Central Market Hub": [-1.2921, 36.8219],
+  "Nairobi": [-1.2921, 36.8219],
+  "Nairobi Central Millers": [-1.2921, 36.8219],
+  "Coastal Wholesale Terminal": [-4.0435, 39.6682],
+  "Coastal Wholesale Terminal / Mombasa": [-4.0435, 39.6682],
+  "Mombasa": [-4.0435, 39.6682],
+  "Kisumu": [-0.0917, 34.7680],
+  "Kisumu Lake Terminal": [-0.0917, 34.7680],
+
+  // Uganda Hubs & Depots
+  "Kampala Agri Terminal": [0.3476, 32.5825],
+  "Kampala": [0.3476, 32.5825],
+  "Jinja": [0.4244, 33.2042],
+  "Tororo": [0.6928, 34.1808],
+
+  // Rwanda Hubs & Depots
+  "Kigali Agro Terminal": [-1.9441, 30.0619],
+  "Kigali": [-1.9441, 30.0619],
+
+  // Tanzania Hubs & Depots
+  "Mwanza": [-2.5164, 32.9000],
+  "Dar es Salaam": [-6.7924, 39.2083],
+  "Arusha": [-3.3869, 36.6830]
 };
 
-// Strategic intermediate corridor opportunity candidates
+// Strategic intermediate corridor opportunity candidates (baseline)
 const STRATEGIC_CORRIDOR_OPPORTUNITIES = [
   {
     id: "opp-nakuru",
@@ -108,9 +131,84 @@ const STRATEGIC_CORRIDOR_OPPORTUNITIES = [
   }
 ];
 
-// Helper to resolve coordinates from string
+// Helper to resolve regional default real hubs if generic text is provided
+export function sanitizeHubName(name, commodity = "Maize", originName = "Kitale") {
+  if (!name || typeof name !== 'string') return getRegionalDefaultHub(originName, commodity);
+  
+  const lower = name.toLowerCase().trim();
+  
+  // Detect if string is generic or nameless
+  const isGeneric = /^(optimal|hub|auto-arbitrage|destination|point|market|unknown|location|depot|unnamed|point\s*\d*)$/i.test(lower) ||
+                    lower.includes("auto-arbitrage") || lower === "hub optimal" || lower === "optimal hub";
+                    
+  if (isGeneric) {
+    return getRegionalDefaultHub(originName, commodity);
+  }
+  
+  // Map known cities/towns to full, official real trade terminal names
+  if (lower.includes("nairobi")) return "Nairobi Central Millers & Wholesale Market";
+  if (lower.includes("eldoret")) return "Eldoret NCPB Strategic Grain Silos";
+  if (lower.includes("nakuru")) return "Nakuru Feed Mill & Cereal Depot";
+  if (lower.includes("busia")) return "Busia Cross-Border Trade Terminal";
+  if (lower.includes("kitale")) return "Kitale Grain Aggregation Depot";
+  if (lower.includes("goma")) return "Goma North Kivu Border Trading Hub";
+  if (lower.includes("bunia")) return "Bunia Ituri Trading Depot";
+  if (lower.includes("bukavu")) return "Bukavu South Kivu Commercial Terminal";
+  if (lower.includes("butembo")) return "Butembo Highland Grain Hub";
+  if (lower.includes("beni")) return "Beni Semliki Valley Depot";
+  if (lower.includes("kisangani")) return "Kisangani Riverine Transit Port";
+  if (lower.includes("kampala")) return "Kampala Wholesale Agro Terminal";
+  if (lower.includes("jinja")) return "Jinja Lake Grain Terminal";
+  if (lower.includes("kigali")) return "Kigali Central Logistics Terminal";
+  if (lower.includes("gisenyi") || lower.includes("rubavu")) return "Gisenyi Cross-Border Station";
+  if (lower.includes("mwanza")) return "Mwanza Lake Victoria Agro Port";
+  if (lower.includes("dar")) return "Dar es Salaam Central Ocean Port";
+  if (lower.includes("mombasa")) return "Mombasa Coastal Wholesale Terminal";
+  if (lower.includes("kisumu")) return "Kisumu Lake Basin Logistics Hub";
+  
+  return name;
+}
+
+function getRegionalDefaultHub(originName = "", commodity = "") {
+  const lowerOrig = (originName || "").toLowerCase();
+  const lowerCrop = (commodity || "").toLowerCase();
+  
+  if (lowerOrig.includes("bunia") || lowerOrig.includes("goma") || lowerOrig.includes("bukavu") || lowerOrig.includes("butembo") || lowerOrig.includes("beni")) {
+    if (lowerCrop.includes("cassava") || lowerCrop.includes("bean")) {
+      return "Goma North Kivu Border Trading Hub";
+    }
+    return "Kampala Wholesale Agro Terminal";
+  }
+  
+  if (lowerOrig.includes("kitale") || lowerOrig.includes("eldoret") || lowerOrig.includes("nakuru") || lowerOrig.includes("busia")) {
+    if (lowerCrop.includes("coffee") || lowerCrop.includes("tea")) {
+      return "Mombasa Coastal Wholesale Terminal";
+    }
+    return "Nairobi Central Millers & Wholesale Market";
+  }
+  
+  if (lowerOrig.includes("kampala") || lowerOrig.includes("jinja")) {
+    return "Kampala Wholesale Agro Terminal";
+  }
+  
+  if (lowerOrig.includes("kigali") || lowerOrig.includes("gisenyi")) {
+    return "Kigali Central Logistics Terminal";
+  }
+  
+  if (lowerOrig.includes("mwanza") || lowerOrig.includes("dar")) {
+    return "Mwanza Lake Victoria Agro Port";
+  }
+  
+  return "Nairobi Central Millers & Wholesale Market";
+}
+
+// Helper to resolve coordinates from string dynamically with exact real location lookup
 function resolveCoordinates(name, fallback = [0.4608, 34.1115]) {
   if (!name) return fallback;
+  
+  // Clean name first
+  const clean = sanitizeHubName(name);
+  if (LOCATION_COORDINATES[clean]) return LOCATION_COORDINATES[clean];
   if (LOCATION_COORDINATES[name]) return LOCATION_COORDINATES[name];
   
   const lower = name.toLowerCase();
@@ -119,7 +217,23 @@ function resolveCoordinates(name, fallback = [0.4608, 34.1115]) {
       return coords;
     }
   }
-  return fallback;
+  
+  // If name is unknown, match to real city instead of hash
+  if (lower.includes("goma") || lower.includes("drc") || lower.includes("kivu") || lower.includes("bunia")) {
+    return LOCATION_COORDINATES["Goma"];
+  }
+  if (lower.includes("uganda") || lower.includes("kampala")) {
+    return LOCATION_COORDINATES["Kampala"];
+  }
+  if (lower.includes("rwanda") || lower.includes("kigali")) {
+    return LOCATION_COORDINATES["Kigali"];
+  }
+  if (lower.includes("tanzania") || lower.includes("mwanza") || lower.includes("dar")) {
+    return LOCATION_COORDINATES["Mwanza"];
+  }
+  
+  // Default to Nairobi Central Market real coordinates
+  return LOCATION_COORDINATES["Nairobi"];
 }
 
 // Custom DivIcons for Leaflet
@@ -221,9 +335,13 @@ export default function GeospatialRouteMap({
   const [showRadarGrid, setShowRadarGrid] = useState(true);
   const [showOpportunities, setShowOpportunities] = useState(true);
 
+  // Sanitize origin and destination names to guarantee real named locations
+  const cleanOriginName = useMemo(() => sanitizeHubName(originName, commodity, originName), [originName, commodity]);
+  const cleanDestinationName = useMemo(() => sanitizeHubName(destinationName, commodity, originName), [destinationName, commodity, originName]);
+
   // Resolve origin and destination coords
-  const originCoords = useMemo(() => resolveCoordinates(originName, [1.5667, 30.2500]), [originName]);
-  const destCoords = useMemo(() => resolveCoordinates(destinationName, [0.4608, 34.1115]), [destinationName]);
+  const originCoords = useMemo(() => resolveCoordinates(cleanOriginName, [1.5667, 30.2500]), [cleanOriginName]);
+  const destCoords = useMemo(() => resolveCoordinates(cleanDestinationName, [0.4608, 34.1115]), [cleanDestinationName]);
 
   // Generate intermediate corridor waypoint (e.g. border crossing or junction)
   const corridorWaypoints = useMemo(() => {
@@ -377,7 +495,7 @@ export default function GeospatialRouteMap({
           {/* Origin Marker */}
           <Marker
             position={originCoords}
-            icon={createOriginIcon(originName)}
+            icon={createOriginIcon(cleanOriginName)}
           >
             <Popup className="dark-leaflet-popup">
               <div className="p-3 bg-slate-900 text-slate-100 rounded-xl border border-emerald-500/40 min-w-[220px]">
@@ -385,7 +503,7 @@ export default function GeospatialRouteMap({
                   <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
                   <span>{t.originAgroDepot}</span>
                 </div>
-                <h4 className="font-extrabold text-white text-sm">{originName}</h4>
+                <h4 className="font-extrabold text-white text-sm">{cleanOriginName}</h4>
                 <div className="mt-2 space-y-1 text-[11px] text-slate-300">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Commodity:</span>
@@ -407,7 +525,7 @@ export default function GeospatialRouteMap({
           {/* Primary Destination Marker */}
           <Marker
             position={destCoords}
-            icon={createDestinationIcon(destinationName)}
+            icon={createDestinationIcon(cleanDestinationName)}
           >
             <Popup className="dark-leaflet-popup">
               <div className="p-3 bg-slate-900 text-slate-100 rounded-xl border border-cyan-500/40 min-w-[240px]">
@@ -415,7 +533,7 @@ export default function GeospatialRouteMap({
                   <GeminiIcon className="w-3.5 h-3.5" />
                   <span>{t.optimalArbitrageHub}</span>
                 </div>
-                <h4 className="font-extrabold text-white text-sm">{destinationName}</h4>
+                <h4 className="font-extrabold text-white text-sm">{cleanDestinationName}</h4>
                 <div className="mt-2 space-y-1 text-[11px] text-slate-300">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Net Farmer Payout:</span>

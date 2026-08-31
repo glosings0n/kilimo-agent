@@ -1346,32 +1346,29 @@ export default function MultimodalInputCapsule({
               </button>
             </div>
           ) : (
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={notes}
-              onChange={handleTextChange}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleFormSubmit(e);
+            <div className="w-full py-1.5 px-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-2 text-slate-300 focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/30 transition">
+              <input
+                type="text"
+                value={notes || ""}
+                onChange={(e) => setNotes?.(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (canSubmit) {
+                      handleFormSubmit();
+                    }
+                  }
+                }}
+                placeholder={
+                  lang === 'fr'
+                    ? "Précisez votre récolte, volume ou posez une question..."
+                    : lang === 'sw'
+                    ? "Eleza mavuno yako, uzito au uliza swali..."
+                    : "Describe your harvest, volume, or ask a question..."
                 }
-              }}
-              placeholder={
-                hasExecuted
-                  ? (lang === 'fr'
-                      ? "Demandez à KilimoAgent d'ajuster l'itinéraire, négocier le fret ou recalculer..."
-                      : lang === 'sw'
-                      ? "Agiza KilimoAgent kurekebisha njia, bei ya usafiri au kuchambua upya..."
-                      : "Ask KilimoAgent to adjust route, negotiate freight, or re-run arbitrage...")
-                  : (lang === 'fr'
-                      ? "Décrivez votre récolte, volume, dépôt ou conversez avec l'agent d'accueil..."
-                      : lang === 'sw'
-                      ? "Eleza mazao yako, uzito, mahali ulipo au zungumza na Receptionist..."
-                      : "Ask KilimoAgent or describe harvest volume & origin depot...")
-              }
-              className="w-full bg-transparent text-slate-100 placeholder-slate-500 text-sm sm:text-base resize-none focus:outline-none leading-relaxed font-sans min-h-[26px] max-h-[120px] overflow-y-auto custom-scrollbar"
-            />
+                className="w-full bg-transparent text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none py-1"
+              />
+            </div>
           )}
         </div>
 

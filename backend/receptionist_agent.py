@@ -12,7 +12,7 @@ from tools.multimodal_grading import grade_and_validate_harvest_image, validate_
 from tools.market_and_logistics import get_regional_export_compliance
 from guardrails.gemma_guard import GemmaModelArmor
 
-from config.models import DEFAULT_GEMINI_MODEL as MODEL_NAME
+from config.models import API_GEMINI_MODEL as MODEL_NAME
 
 load_dotenv()
 
@@ -283,8 +283,8 @@ def _is_pure_greeting(text: str) -> bool:
     # If text contains numbers or digits, it is not a pure greeting
     if any(c.isdigit() for c in text_l):
         return False
-    # If text contains known crops, it's not a pure greeting
-    if _extract_crop_rule(text_l):
+    # If text contains known crops, depots, or volume info, it's not a pure greeting
+    if _extract_crop_rule(text_l) or _extract_depot_rule(text_l) or _extract_volume_rule(text_l):
         return False
     
     clean_words = [w for w in re.sub(r'[^\w\s]', '', text_l).split() if w]
@@ -705,13 +705,24 @@ async def run_receptionist_triage(
             if not extracted.get("destination_preference"): missing.append("destination_preference")
 
             is_ready = bool(parsed.get("is_ready", False)) or (len(missing) == 0)
+            widgets = parsed.get("genui_widgets") or []
+            if not isinstance(widgets, list):
+                widgets = [widgets] if widgets else []
+            if not widgets and missing:
+                if "crop" in missing and "crop_selector" not in widgets:
+                    widgets.append("crop_selector")
+                if "volume_kg" in missing and "volume_picker" not in widgets:
+                    widgets.append("volume_picker")
+                if "origin_depot" in missing and "map_picker" not in widgets:
+                    widgets.append("map_picker")
+
             return {
                 "reply": parsed.get("reply", ""),
                 "intent": parsed.get("intent", "NEEDS_CLARIFICATION" if missing else "READY_FOR_DISPATCH"),
                 "detected_language": active_lang,
                 "extracted_params": extracted,
                 "missing_fields": missing,
-                "genui_widgets": parsed.get("genui_widgets", ["crop_selector"]),
+                "genui_widgets": widgets,
                 "is_ready": is_ready
             }
     except Exception:

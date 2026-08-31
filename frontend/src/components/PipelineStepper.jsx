@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 import { translations } from '../utils/translations';
+import MODELS_CONFIG from '../config/models';
 
 export default function PipelineStepper({
   activeStep = 6,
@@ -104,7 +105,7 @@ export default function PipelineStepper({
         "Quality Grade: " + (parsedData?.visual?.qualityGrade || "Grade A Standard (~12.2% moisture)")
       ],
       telemetry: {
-        model: "gemini-3.6-flash",
+        model: MODELS_CONFIG.defaultModelId,
         temperature: "0.0 (Deterministic)",
         visionTokens: "258 tokens"
       }

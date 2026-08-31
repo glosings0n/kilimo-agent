@@ -770,7 +770,7 @@ export default function App() {
   <div class="footer">
     <div class="footer-left">
       KilimoAgent — Autonomous Cyber-Physical Agricultural Arbitrage & Logistics Dispatch<br/>
-      Google ADK v2.8.0 • Gemini 2.5 Flash • Cloud Firestore State Ledger
+      Google ADK v2.8.0 • Gemini 3.6 Flash • Cloud Firestore State Ledger
     </div>
     <div class="footer-right">
       kilimoagent.app
