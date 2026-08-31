@@ -165,14 +165,15 @@ export default function GeminiLiveModal({
   }, [stopAllPlayback]);
 
   // Play incoming 24kHz PCM chunk
-  const playPcm24kChunk = useCallback((base64PcmData) => {
+  const playPcm24kChunk = useCallback(async (base64PcmData) => {
     try {
-      if (!outAudioCtxRef.current) {
-        outAudioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+      if (!outAudioCtxRef.current || outAudioCtxRef.current.state === 'closed') {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        outAudioCtxRef.current = new AudioCtx();
       }
       const ctx = outAudioCtxRef.current;
       if (ctx.state === 'suspended') {
-        ctx.resume();
+        await ctx.resume();
       }
 
       // Convert Base64 -> Int16Array -> Float32Array
@@ -193,10 +194,18 @@ export default function GeminiLiveModal({
 
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(ctx.destination);
+
+      // Add 1.8x Gain Node boost
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = 1.8;
+      source.connect(gainNode);
+      gainNode.connect(ctx.destination);
 
       const now = ctx.currentTime;
-      const playTime = Math.max(now, nextPlayTimeRef.current);
+      if (nextPlayTimeRef.current < now || nextPlayTimeRef.current > now + 1.2) {
+        nextPlayTimeRef.current = now;
+      }
+      const playTime = nextPlayTimeRef.current;
       source.start(playTime);
       nextPlayTimeRef.current = playTime + audioBuffer.duration;
 
