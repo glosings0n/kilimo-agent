@@ -285,6 +285,7 @@ def process_multimodal_harvest_request(
             compliance = get_regional_export_compliance(crp, arb.get("origin_country", "Kenya"))
             
             raw_output = (
+                f"Origin Depot: {loc}\n"
                 f"Selected Destination: {rec_hub}\n"
                 f"Net Profit: ${arb.get('projected_net_return_usd', 0.0):,.2f} USD\n"
                 f"Freight Cost: ${wb.get('freight_cost_usd', 0.0):,.2f} USD\n"

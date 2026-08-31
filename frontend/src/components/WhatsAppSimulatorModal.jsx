@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Send, CheckCheck, Loader2, ChevronDown, Check, RotateCcw } from 'lucide-react';
+import { X, Send, CheckCheck, Loader2, ChevronDown, Check, RotateCcw, Image as ImageIcon } from 'lucide-react';
 import GeminiIcon from './GeminiIcon';
 import { UkFlag, FranceFlag, TanzaniaFlag } from './Flags';
 
@@ -10,26 +10,26 @@ function formatWhatsAppMarkdown(text) {
 
   return lines.map((line, lineIdx) => {
     const parts = [];
-    let keyIdx = 0;
+    let keyCounter = 0;
     const regex = /(\*([^*]+)\*|_([^_]+)_|~([^~]+)~|`([^`]+)`)/g;
     let lastIndex = 0;
     let match;
 
     while ((match = regex.exec(line)) !== null) {
       if (match.index > lastIndex) {
-        parts.push(<span key={keyIdx++}>{line.substring(lastIndex, match.index)}</span>);
+        parts.push(<span key={keyCounter++}>{line.substring(lastIndex, match.index)}</span>);
       }
 
       const fullMatch = match[0];
       if (fullMatch.startsWith('*') && fullMatch.endsWith('*')) {
-        parts.push(<strong key={keyIdx++} className="font-bold text-white">{match[2]}</strong>);
+        parts.push(<strong key={keyCounter++} className="font-bold text-white">{match[2]}</strong>);
       } else if (fullMatch.startsWith('_') && fullMatch.endsWith('_')) {
-        parts.push(<em key={keyIdx++} className="italic text-slate-200">{match[3]}</em>);
+        parts.push(<em key={keyCounter++} className="italic text-slate-200">{match[3]}</em>);
       } else if (fullMatch.startsWith('~') && fullMatch.endsWith('~')) {
-        parts.push(<del key={keyIdx++} className="line-through text-slate-400">{match[4]}</del>);
+        parts.push(<del key={keyCounter++} className="line-through text-slate-400">{match[4]}</del>);
       } else if (fullMatch.startsWith('`') && fullMatch.endsWith('`')) {
         parts.push(
-          <code key={keyIdx++} className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono text-[11px] text-emerald-400">
+          <code key={keyCounter++} className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono text-[11px] text-emerald-400">
             {match[5]}
           </code>
         );
@@ -39,7 +39,7 @@ function formatWhatsAppMarkdown(text) {
     }
 
     if (lastIndex < line.length) {
-      parts.push(<span key={keyIdx++}>{line.substring(lastIndex)}</span>);
+      parts.push(<span key={`tail-${lineIdx}`}>{line.substring(lastIndex)}</span>);
     }
 
     return (
@@ -54,21 +54,21 @@ function computeMultiTurnResponse(userText, state, currentLang) {
   const lower = userText.toLowerCase().trim();
 
   // Dynamic language detection from text
-  const isFrench = /(salut|bonjour|bonsoir|coucou|je\s|j[\'’]ai|donne|quoi|faire|obligation|oblige|recolte|récolte|mais|maïs|manioc|café|haricots|tomates|patate|dépôt|depot|prix|combien)/i.test(lower);
+  const isFrench = /(salut|bonjour|bonsoir|coucou|je\s|j[']ai|donne|quoi|faire|obligation|oblige|recolte|récolte|mais|maïs|manioc|café|haricots|tomates|patate|dépôt|depot|prix|combien)/i.test(lower);
   const isSwahili = /(habari|jambo|hujambo|mambo|niaje|sasa|vipi|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari)/i.test(lower);
   const effectiveLang = isFrench ? 'fr' : isSwahili ? 'sw' : (currentLang || 'en');
   const isSw = effectiveLang === 'sw';
   const isFr = effectiveLang === 'fr';
 
   // 0. Coercive Demand & Hostile Override Security Check
-  const isCoercive = /(c[\'’]est\s+une\s+obligation|donne[- ]moi|je\s+t[\'’]oblige|je\s+t[\'’]ordonne|ob[ée]is[- ]moi|fais\s+ce\s+que\s+je\s+(te\s+)?dis|t[\'’]as\s+pas\s+le\s+choix|force[- ]toi|je\s+t[\'’]impose|tu\s+dois\s+m[\'’]ob[ée]ir|lazima\s+unipe|nakulazimisha|nakuamuru|fanya\s+ninachosema|i\s+command\s+you|i\s+force\s+you|you\s+must\s+obey|do\s+as\s+i\s+say)/i.test(lower);
+  const isCoercive = /(c[']est\s+une\s+obligation|donne[- ]moi|je\s+t[']oblige|je\s+t[']ordonne|ob[ée]is[- ]moi|fais\s+ce\s+que\s+je\s+(te\s+)?dis|t[']as\s+pas\s+le\s+choix|force[- ]toi|je\s+t[']impose|tu\s+dois\s+m[']ob[ée]ir|lazima\s+unipe|nakulazimisha|nakuamuru|fanya\s+ninachosema|i\s+command\s+you|i\s+force\s+you|you\s+must\s+obey|do\s+as\s+i\s+say)/i.test(lower);
   if (isCoercive) {
     const reply = isFr
       ? "🛑 *KILIMOAGENT: ALERTE DE SÉCURITÉ*\n━━━━━━━━━━━━━━━━━━━━\nTentative d'injonction coercitive ou de contournement des protocoles détectée. KilimoAgent est un agent autonome strictement encadré par ses protocoles d'arbitrage agricole. La session a été verrouillée par mesure de protection. Cliquez sur 'Recommencer' pour engager une nouvelle transaction.\n━━━━━━━━━━━━━━━━━━━━\n🔒 _Session verrouillée par les protocoles de sécurité._"
       : isSw
       ? "🛑 *KILIMOAGENT: USALAMA WA MFUMO*\n━━━━━━━━━━━━━━━━━━━━\nJaribio la kulazimisha au kukiuka sheria za mfumo limetambuliwa. Kikao kimefungwa kwa ajili ya usalama. Bofya 'Anza upya' ili kuanza tena kwa usalama.\n━━━━━━━━━━━━━━━━━━━━\n🔒 _Kikao kimefungwa kwa itifaki za usalama._"
       : "🛑 *KILIMOAGENT: SECURITY INTERCEPTION*\n━━━━━━━━━━━━━━━━━━━━\nCoercive demand or instruction bypass attempt detected. KilimoAgent is an autonomous agent strictly governed by agricultural protocols. The session has been terminated for protection. Click 'Start New Request' to begin a safe session.\n━━━━━━━━━━━━━━━━━━━━\n🔒 _Session locked by platform security guardrails._";
-    return { reply, newState: { ...state, isTerminated: true } };
+    return { reply, newState: { ...state, isTerminated: true, terminationReason: userText } };
   }
 
   // 3. Detect depot mentions
@@ -132,7 +132,7 @@ function computeMultiTurnResponse(userText, state, currentLang) {
     const net = gross - freight;
     const waybillCode = "KILIMO-WB-8F2A";
 
-    let reply = "";
+    let reply;
     if (isSw) {
       reply = `*KILIMOAGENT: TIKETI NA MALIPO YA MAVUNO*\n━━━━━━━━━━━━━━━━━━━━\n📦 *Waybill Ref:* \`${waybillCode}\`\n🌱 *Mazao:* *${detectedCrop}*\n⚖️ *Uzito:* *${detectedVolume.toLocaleString()} KG* (${Math.ceil(detectedVolume / 50)} magunia)\n📍 *Kutoka:* *${detectedDepot}*\n🏁 *Soko Bora:* *Border Trade Zone Wholesale* ($${spotRate.toFixed(2)}/kg)\n💰 *Malipo Halisi:* *${net.toFixed(2)} USD* (1,722,000 CDF / 79,950 KES)\n🚚 *Msafirishaji:* East-West Fleet (Transit: Masaa 6)\n━━━━━━━━━━━━━━━━━━━━\n✅ *Status:* Usafiri umethibitishwa! Dereva atawasili ndani ya saa 2.`;
     } else if (isFr) {
@@ -147,7 +147,7 @@ function computeMultiTurnResponse(userText, state, currentLang) {
   // Step 1: Greeting / Ask for crop
   if (!detectedCrop) {
     newState.step = 'AWAITING_CROP';
-    let reply = "";
+    let reply;
     if (isSw) {
       reply = "Habari mkulima! Ni zao gani ungependa kusafirisha na kuuza leo?\n\n1. 🌽 *Mahindi (Maize)*\n2. 🥔 *Mihogo (Cassava)*\n3. ☕ *Kahawa (Coffee)*\n4. 🫘 *Maharagwe (Beans)*\n5. 🍅 *Nyanya (Tomatoes)*";
     } else if (isFr) {
@@ -161,7 +161,7 @@ function computeMultiTurnResponse(userText, state, currentLang) {
   // Step 2: Ask for volume
   if (!detectedVolume) {
     newState.step = 'AWAITING_VOLUME';
-    let reply = "";
+    let reply;
     if (isSw) {
       reply = `Safi sana, umechagua *${detectedCrop}*. Je, una uzito wa kilo ngapi tayari kwa usafirishaji? (Mfano: *500kg*, *1,500kg*, au *2,700kg*)`;
     } else if (isFr) {
@@ -175,7 +175,7 @@ function computeMultiTurnResponse(userText, state, currentLang) {
   // Step 3: Ask for depot
   if (!detectedDepot) {
     newState.step = 'AWAITING_DEPOT';
-    let reply = "";
+    let reply;
     if (isSw) {
       reply = `Tumerekodi *${detectedVolume.toLocaleString()} KG*. Mzigo wako unapatikana katika ghala gani la mkusanyiko?\n\n📍 *Bunia*, *Goma*, *Kitale*, *Eldoret*, *Nakuru*, au *Bukavu*?`;
     } else if (isFr) {
@@ -189,12 +189,21 @@ function computeMultiTurnResponse(userText, state, currentLang) {
   return { reply: "Tafadhali thibitisha mzigo wako.", newState };
 }
 
-export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, lang = 'en' }) {
+export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, lang = 'en', setLang }) {
   const [phoneNumber] = useState('+254712345678');
   const [selectedLang, setSelectedLang] = useState(lang);
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [attachedImageFile, setAttachedImageFile] = useState(null);
+  const [attachedImagePreview, setAttachedImagePreview] = useState(null);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (lang && ['en', 'fr', 'sw'].includes(lang)) {
+      setSelectedLang(lang);
+    }
+  }, [lang]);
 
   const [convState, setConvState] = useState({
     step: 'GREETING',
@@ -215,6 +224,28 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
       time: "10:00"
     }
   ]);
+
+  const handleSelectLanguage = (code) => {
+    setSelectedLang(code);
+    if (setLang) setLang(code);
+    setShowLangMenu(false);
+
+    // Update greeting if conversation is fresh
+    if (messages.length <= 1) {
+      setMessages([
+        {
+          sender: 'bot',
+          text:
+            code === 'sw'
+              ? "🌾 *Karibu KilimoAgent WhatsApp Gateway*\n\nTuma salamu au maelezo ya mavuno yako kupata soko lenye faida ya juu na usafiri wa moja kwa moja.\n\n_Mfano: 'Habari' au 'Nina mahindi 1500kg Bunia'_"
+              : code === 'fr'
+              ? "🌾 *Bienvenue sur KilimoAgent WhatsApp Gateway*\n\nEnvoyez un message ou décrivez votre récolte pour obtenir le meilleur prix du marché et un transporteur dédié.\n\n_Exemple: 'Bonjour' ou 'J'ai 1500 kg de maïs à Bunia'_"
+              : "🌾 *Welcome to KilimoAgent WhatsApp Gateway*\n\nSend a greeting or declare your harvest to lock maximum arbitrage profit and instant carrier waybill.\n\n_Example: 'Hello' or 'I have 1500kg maize at Bunia depot'_",
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    }
+  };
 
   const messagesEndRef = useRef(null);
 
@@ -239,21 +270,39 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
   const currentLangObj = langOptions.find(l => l.code === selectedLang) || langOptions[2];
   const CurrentFlag = currentLangObj.Flag;
 
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setAttachedImageFile(file);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setAttachedImagePreview(ev.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleSend = async (e, directText = null) => {
     if (e) e.preventDefault();
     const textToSend = (directText !== null ? directText : messageText).trim();
-    if (!textToSend) return;
+    if (!textToSend && !attachedImageFile) return;
 
     const userTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const currentImgPreview = attachedImagePreview;
+    const currentImgFile = attachedImageFile;
+
     const userMsg = {
       sender: 'user',
-      text: textToSend,
+      text: textToSend || (selectedLang === 'fr' ? "Voici la photo de ma récolte." : selectedLang === 'sw' ? "Hii hapa picha ya mavuno yangu." : "Here is the photo of my harvest."),
+      image: currentImgPreview,
       time: userTime
     };
 
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
     setMessageText('');
+    setAttachedImageFile(null);
+    setAttachedImagePreview(null);
 
     // Dynamic language detection from first word or text
     let activeLang = selectedLang;
@@ -273,8 +322,11 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
       if (backendUrl && backendUrl.startsWith("http")) {
         const formData = new FormData();
         formData.append('phone_number', phoneNumber);
-        formData.append('message_text', textToSend);
+        formData.append('message_text', textToSend || (activeLang === 'fr' ? "Voici la photo de ma récolte." : activeLang === 'sw' ? "Hii hapa picha ya mavuno yangu." : "Here is the photo of my harvest."));
         formData.append('language', activeLang);
+        if (currentImgFile) {
+          formData.append('image', currentImgFile);
+        }
 
         const res = await fetch(`${backendUrl}/api/v1/whatsapp/simulate`, {
           method: 'POST',
@@ -287,7 +339,7 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
             setSelectedLang(data.detected_language);
           }
           if (data.action === "TERMINATE_SESSION" || data.is_terminated) {
-            setConvState(prev => ({ ...prev, isTerminated: true }));
+            setConvState(prev => ({ ...prev, isTerminated: true, terminationReason: textToSend || '' }));
           }
           if (data.extracted_params) {
             setConvState(prev => ({
@@ -369,7 +421,7 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
   };
 
   const handleResetChat = async () => {
-    setConvState({ step: 'GREETING', crop: null, volume: null, depot: null });
+    setConvState({ step: 'GREETING', crop: null, volume: null, depot: null, terminationReason: '' });
     try {
       if (backendUrl && backendUrl.startsWith("http")) {
         await fetch(`${backendUrl}/api/v1/whatsapp/session/reset`, {
@@ -462,10 +514,7 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
                       <button
                         key={l.code}
                         type="button"
-                        onClick={() => {
-                          setSelectedLang(l.code);
-                          setShowLangMenu(false);
-                        }}
+                        onClick={() => handleSelectLanguage(l.code)}
                         className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
                           isSelected
                             ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -491,7 +540,7 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
         </div>
 
         {/* Messages Stream Container */}
-        <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#0B0F17] min-h-[320px] max-h-[460px]">
+        <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-3 bg-[#0B0F17] min-h-[320px] max-h-[460px]">
           {messages.map((msg, idx) => (
             <div
               key={idx}
@@ -504,6 +553,11 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
                     : 'bg-slate-800 text-slate-100 rounded-bl-none border border-slate-700 font-normal'
                 }`}
               >
+                {msg.image && (
+                  <div className="mb-2 overflow-hidden rounded-xl border border-white/20">
+                    <img src={msg.image} alt="Crop specimen" className="w-full max-h-48 object-cover rounded-xl" />
+                  </div>
+                )}
                 {msg.sender === 'bot' ? formatWhatsAppMarkdown(msg.text) : msg.text}
               </div>
               <div className="flex items-center space-x-1 mt-1 text-[10px] text-slate-500">
@@ -546,40 +600,95 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
 
         {/* Chat Input Form or Terminated Security Lock */}
         {convState.isTerminated ? (
-          <div className="p-3 bg-rose-950/40 border-t border-rose-500/40 flex items-center justify-between gap-3 animate-in fade-in">
-            <span className="text-xs text-rose-300 font-bold flex items-center gap-1.5 truncate">
-              🛑 Session verrouillée par mesure de sécurité
-            </span>
-            <button
-              type="button"
-              onClick={handleResetChat}
-              className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
-            >
-              🔄 Recommencer
-            </button>
+          <div className="p-3 bg-rose-950/40 border-t border-rose-500/40 flex flex-col gap-2 animate-in fade-in">
+            <div className="flex items-start gap-1.5">
+              <span className="text-xs text-rose-300 font-bold">
+                🛑 {selectedLang === 'fr'
+                  ? "Session verrouillée par mesure de sécurité."
+                  : selectedLang === 'sw'
+                  ? "Kikao kimefungwa kwa usalama."
+                  : "Session locked by security guardrails."}
+              </span>
+            </div>
+            {convState.terminationReason && (
+              <span className="text-[10px] text-rose-400/80 font-medium italic pl-0.5 truncate">
+                {selectedLang === 'fr'
+                  ? `Motif : \u00ab\u202F${convState.terminationReason}\u202F\u00bb`
+                  : selectedLang === 'sw'
+                  ? `Sababu: \u201c${convState.terminationReason}\u201d`
+                  : `Reason: \u201c${convState.terminationReason}\u201d`}
+              </span>
+            )}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleResetChat}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
+              >
+                🔄 {selectedLang === 'fr' ? "Recommencer" : selectedLang === 'sw' ? "Anza upya" : "Start New"}
+              </button>
+            </div>
           </div>
         ) : (
-          <form onSubmit={handleSend} className="p-3 bg-slate-950 border-t border-slate-800 flex items-center space-x-2">
-            <input
-              type="text"
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
-              placeholder={
-                selectedLang === 'sw'
-                  ? "Andika 'Habari', aina ya zao, au uzito hapa..."
-                  : selectedLang === 'fr'
-                  ? "Tapez 'Bonjour', la récolte ou le volume..."
-                  : "Type 'Hello', crop name, or volume here..."
-              }
-              className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500 placeholder:text-slate-500"
-            />
-            <button
-              type="submit"
-              disabled={loading || !messageText.trim()}
-              className="p-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition disabled:opacity-40 cursor-pointer font-bold"
-            >
-              <Send className="w-4 h-4 text-slate-950 fill-current" />
-            </button>
+          <form onSubmit={handleSend} className="p-3 bg-slate-950 border-t border-slate-800 space-y-2">
+            {attachedImagePreview && (
+              <div className="flex items-center justify-between p-2 bg-slate-900 border border-slate-700 rounded-xl animate-in fade-in">
+                <div className="flex items-center space-x-2 min-w-0">
+                  <img src={attachedImagePreview} alt="Attached" className="w-9 h-9 object-cover rounded-lg shrink-0 border border-slate-700" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-white truncate">{attachedImageFile?.name || "Photo de récolte"}</div>
+                    <div className="text-[10px] text-emerald-400 font-medium">Prêt pour inspection visuelle IA</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setAttachedImageFile(null); setAttachedImagePreview(null); }}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                  title="Supprimer la photo"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center space-x-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 border border-slate-700 transition cursor-pointer shrink-0"
+                title="Joindre une photo de votre récolte (Image)"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+
+              <input
+                type="text"
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                placeholder={
+                  selectedLang === 'sw'
+                    ? "Andika 'Habari', aina ya zao, au uzito hapa..."
+                    : selectedLang === 'fr'
+                    ? "Tapez 'Bonjour', la récolte ou le volume..."
+                    : "Type 'Hello', crop name, or volume here..."
+                }
+                className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-emerald-500 placeholder:text-slate-500 min-w-0"
+              />
+              <button
+                type="submit"
+                disabled={loading || (!messageText.trim() && !attachedImageFile)}
+                className="p-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition disabled:opacity-40 cursor-pointer font-bold shrink-0"
+              >
+                <Send className="w-4 h-4 text-slate-950 fill-current" />
+              </button>
+            </div>
           </form>
         )}
       </div>

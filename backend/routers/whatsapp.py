@@ -70,26 +70,32 @@ whatsapp_sessions = WhatsAppSessionStore()
 
 def _format_conversational_reply(
     reply_text: str,
-    language: str = "en"
+    language: str = "en",
+    is_initial: bool = False
 ) -> str:
-    """Formats receptionist triage clarification messages for mobile WhatsApp."""
-    if language == "sw":
-        header = "🌾 *KILIMOAGENT: MAPOKEZI YA MKULIMA*"
-        footer = "🌾 _KilimoAgent - Kukuza kilimo cha kisasa barani Afrika._"
-    elif language == "fr":
-        header = "🌾 *KILIMOAGENT: ACCUEIL & ORIENTATION*"
-        footer = "🌾 _KilimoAgent - L'intelligence agricole au service des producteurs._"
-    else:
-        header = "🌾 *KILIMOAGENT: RECEPTION & INTAKE*"
-        footer = "🌾 _KilimoAgent - Autonomous Agritech & Logistics for Africa._"
+    """Formats receptionist triage clarification messages for mobile WhatsApp (fluid, human-like dialogue)."""
+    clean_text = reply_text.strip()
+    if is_initial:
+        if language == "sw":
+            header = "🌾 *KILIMOAGENT: MAPOKEZI YA MKULIMA*"
+            footer = "🌾 _KilimoAgent - Kukuza kilimo cha kisasa barani Afrika._"
+        elif language == "fr":
+            header = "🌾 *KILIMOAGENT: ACCUEIL & ORIENTATION*"
+            footer = "🌾 _KilimoAgent - L'intelligence agricole au service des producteurs._"
+        else:
+            header = "🌾 *KILIMOAGENT: RECEPTION & INTAKE*"
+            footer = "🌾 _KilimoAgent - Autonomous Agritech & Logistics for Africa._"
 
-    return (
-        f"{header}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{reply_text}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{footer}"
-    )
+        return (
+            f"{header}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{clean_text}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{footer}"
+        )
+
+    # Clean, direct conversational text for all intermediate chat turns
+    return clean_text
 
 
 def send_twilio_whatsapp_message(
@@ -196,12 +202,15 @@ def _format_whatsapp_message(
     wb_match = re.search(r'KILIMO-WB-[A-Z0-9]+', agent_output)
     extracted_waybill = wb_match.group(0) if wb_match else (waybill_id or f"KILIMO-WB-{uuid.uuid4().hex[:8].upper()}")
 
-    # Extract Key Revenue / Destination / Cost if possible
-    dest_match = re.search(r'(?:Selected Destination|Destination Hub|Hub Selected)[:\s*]+([^\n\r,]+)', agent_output, re.IGNORECASE)
-    dest_hub = dest_match.group(1).strip().replace("*", "") if dest_match else "Regional Trade Hub"
+    # Extract Origin Depot and Destination Hub
+    orig_match = re.search(r'(?:Origin Depot|Pickup Location|Origin|Point de collecte|Départ)[:\s*]+([^\n\r,]+)', agent_output, re.IGNORECASE)
+    orig_depot = orig_match.group(1).strip().replace("*", "") if orig_match else "Dépôt d'Origine"
+
+    dest_match = re.search(r'(?:Selected Destination|Destination Hub|Hub Selected|Target Market)[:\s*]+([^\n\r,]+)', agent_output, re.IGNORECASE)
+    dest_hub = dest_match.group(1).strip().replace("*", "") if dest_match else "Marché Régional"
 
     net_match = re.search(r'(?:Net (?:Payout|Revenue|Profit)|Net Earnings)[:\s*]+([$\d.,]+)', agent_output, re.IGNORECASE)
-    net_val = net_match.group(1).strip() if net_match else "Calculated in Ledger"
+    net_val = net_match.group(1).strip() if net_match else "Calculé au Grand Livre"
 
     # Redact any remaining PII in the output
     clean_output = gemma_armor.anonymize_pii(agent_output)
@@ -209,30 +218,48 @@ def _format_whatsapp_message(
     if language == "sw":
         greeting = "🌾 *KILIMOAGENT: RIPOTI YA MAVUNO NA USAFIRI*"
         summary_header = "📋 *Muhtasari wa Makubaliano ya Soko & Usafirishaji:*"
+        kpi_lines = (
+            f"📦 *Nambari ya Waybill:* `{extracted_waybill}`\n"
+            f"📍 *Kituo cha Makusanyo (Asili):* *{orig_depot}*\n"
+            f"🎯 *Soko Lililopendekezwa (Mwisho):* *{dest_hub}*\n"
+            f"💰 *Mapato Halisi ya Mkulima:* *{net_val}*"
+        )
         instructions = (
             "\n📌 *Maagizo ya Mkulima:*\n"
-            f"1. Weka mzigo wako tayari kwenye kituo cha makabidhiano.\n"
-            f"2. Dereva wa gari atathibitisha Nambari ya Waybill (*{extracted_waybill}*) kabla ya kupakia.\n"
+            f"1. Weka mzigo wako tayari kwenye kituo cha *{orig_depot}*.\n"
+            f"2. Dereva wa gari atathibitisha Nambari ya Waybill (*{extracted_waybill}*) kabla ya kusafirisha hadi *{dest_hub}*.\n"
             "3. Malipo ya moja kwa moja yatatolewa mara tu ukaguzi wa mwisho utakapokamilika sokoni.\n\n"
             "🌾 _KilimoAgent - Kukuza kilimo cha kisasa barani Afrika._"
         )
     elif language == "fr":
         greeting = "🌾 *KILIMOAGENT: RAPPORT DE RÉCOLTE ET LOGISTIQUE*"
         summary_header = "📋 *Synthèse d'Arbitrage Marché & Expédition:*"
+        kpi_lines = (
+            f"📦 *Réf. Lettre de Voiture :* `{extracted_waybill}`\n"
+            f"📍 *Point de Collecte (Départ) :* *{orig_depot}*\n"
+            f"🎯 *Marché Cible Recommandé (Arrivée) :* *{dest_hub}*\n"
+            f"💰 *Revenu Net Producteur :* *{net_val}*"
+        )
         instructions = (
             "\n📌 *Instructions pour le Producteur:*\n"
-            f"1. Veuillez préparer votre récolte au point de collecte convenu.\n"
-            f"2. Le transporteur vérifiera le numéro de lettre de voiture (*{extracted_waybill}*) avant le chargement.\n"
+            f"1. Veuillez préparer votre récolte au point de collecte (*{orig_depot}*).\n"
+            f"2. Le transporteur vérifiera le numéro de lettre de voiture (*{extracted_waybill}*) pour acheminer le stock vers *{dest_hub}*.\n"
             "3. Le versement sera débloqué immédiatement après la confirmation de pesée au terminal.\n\n"
             "🌾 _KilimoAgent - L'intelligence agricole au service des producteurs._"
         )
     else:  # English default
         greeting = "🌾 *KILIMOAGENT: HARVEST ARBITRAGE & FREIGHT REPORT*"
         summary_header = "📋 *Executive Dispatch & Market Summary:*"
+        kpi_lines = (
+            f"📦 *Waybill Ref:* `{extracted_waybill}`\n"
+            f"📍 *Origin Depot (Pickup):* *{orig_depot}*\n"
+            f"🎯 *Recommended Market (Destination):* *{dest_hub}*\n"
+            f"💰 *Net Farmer Outcome:* *{net_val}*"
+        )
         instructions = (
             "\n📌 *Next Steps for Farmer:*\n"
-            f"1. Keep harvest securely staged at pickup depot.\n"
-            f"2. Carrier will verify Waybill (*{extracted_waybill}*) upon cargo loading.\n"
+            f"1. Keep harvest securely staged at *{orig_depot}* depot.\n"
+            f"2. Carrier will verify Waybill (*{extracted_waybill}*) for transit to *{dest_hub}*.\n"
             "3. Direct settlement will be disbursed upon receipt & grade validation at destination.\n\n"
             "🌾 _KilimoAgent - Autonomous Agritech & Logistics for Africa._"
         )
@@ -240,9 +267,7 @@ def _format_whatsapp_message(
     formatted_msg = (
         f"{greeting}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 *Waybill Ref:* `{extracted_waybill}`\n"
-        f"📍 *Target Market:* *{dest_hub}*\n"
-        f"💰 *Net Outcome:* *{net_val}*\n"
+        f"{kpi_lines}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{summary_header}\n\n"
         f"{clean_output}\n\n"

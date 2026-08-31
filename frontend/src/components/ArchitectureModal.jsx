@@ -113,18 +113,19 @@ export default function ArchitectureModal({
 
           {/* Architecture Grid */}
           <div className="space-y-4 pt-1">
-            {/* Layer 1: Ingestion */}
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+            {/* Layer 1: Multi-Turn Receptionist & GenUI Agent */}
+            <div className="p-4 rounded-2xl bg-slate-950 border border-amber-500/40 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-amber-400">
-                  1. Multimodal field ingestion layer
+                <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  1. Conversational Receptionist & GenUI Agent
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30 font-bold">
-                  FastAPI / Multipart HTTP
+                  receptionist_agent.py (Gemini 3.6 Flash)
                 </span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                The farmer or cooperative uploads a natural voice note in native Swahili or French alongside a raw harvest photo. No text typing or manual data entry required.
+                Natively converses in Swahili, French, and English across audio/text turns. Tracks intake parameters (<code className="text-amber-300">crop</code>, <code className="text-amber-300">volume_kg</code>, <code className="text-amber-300">origin_depot</code>) and dynamically emits <strong>Generative UI (GenUI)</strong> interactive widgets directly into the chat stream (Crop Cards, Leaflet Depot Picker, Lot Sizer, Quality Card).
               </p>
             </div>
 
@@ -132,19 +133,39 @@ export default function ArchitectureModal({
               <ArrowDown className="w-4 h-4" />
             </div>
 
-            {/* Layer 2: Gemma 2 Guardrail */}
+            {/* Layer 2: Gemma 2 Guardrail & Session Lock Armor */}
+            <div className="p-4 rounded-2xl bg-slate-950 border border-rose-500/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-rose-400" />
+                  2. Neural Guardrail Armor & Security Interceptor (Gemma 2 9B-IT)
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/30 font-bold">
+                  gemma_guard.py (Gemma 2)
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Audits all multimodal inputs in real time. Detects adversarial prompt injections, coercive commands, and illicit intents (poisoning, violence, self-harm). Instantly locks the session with <strong>explicit reason attribution</strong> (displayed to the user) to prevent unvetted execution until a clean reset.
+              </p>
+            </div>
+
+            <div className="flex justify-center text-slate-600">
+              <ArrowDown className="w-4 h-4" />
+            </div>
+
+            {/* Layer 3: Google ADK Taskmaster Dispatch Agent */}
             <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/40 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  2. Security & guardrail armor (Gemma 2 9B-IT)
+                  <GeminiIcon className="w-4 h-4" />
+                  3. Autonomous Taskmaster Dispatch Agent (Google ADK Engine)
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-bold">
-                  Gemma-2-9b-it
+                  google-adk v2.8.0 / Gemini 3.6 Flash
                 </span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Performs pre-execution security audits, scanning for prompt injections, system leakage, and malicious instructions before the payload reaches the reasoning engine.
+                Autonomous orchestrator executing the full cyber-physical dispatch pipeline via <code className="text-emerald-300">Runner.run_async()</code>. Orchestrates 7 specialized tools to turn unstructured field media into guaranteed trade execution.
               </p>
             </div>
 
@@ -152,43 +173,41 @@ export default function ArchitectureModal({
               <ArrowDown className="w-4 h-4" />
             </div>
 
-            {/* Layer 3: Gemini 3.6 Flash Orchestrator */}
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <GeminiIcon className="w-4 h-4" />
-                  3. Primary multimodal orchestrator (Gemini 3.6 Flash)
-                </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700 font-bold">
-                  Zero Temperature / AFC
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Performs Swahili acoustic transcription (verbatim quote, exact weight in kilograms, origin depot) and Computer Vision quality inspection (kernel integrity, moisture level, Grade A/B classification).
-              </p>
-            </div>
-
-            <div className="flex justify-center text-slate-600">
-              <ArrowDown className="w-4 h-4" />
-            </div>
-
-            {/* Layer 4: Autonomous Tool Calling & Execution */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+            {/* Layer 4: Autonomous Tool Calling & Execution Suite */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
                 <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  Tool 1: Market arbitrage engine
+                  🛰️ Search & Corridor Radar
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  Calls <code className="text-emerald-400 font-bold">fetch_realtime_market_arbitrage()</code> to calculate real haversine road distances and multi-currency payouts across 14 trade hubs.
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  <code className="text-emerald-400 font-bold">google_search</code> + <code className="text-emerald-400 font-bold">analyze_corridor_market_opportunities()</code> for live spot rates and in-transit miller off-ramps.
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
                 <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  Tool 2: Logistics dispatch service
+                  🗺️ Routing & EAC Compliance
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  Calls <code className="text-emerald-400 font-bold">generate_carrier_waybill()</code> to lock carrier capacity with SHA-256 digital stamps and collision-resistant waybills.
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  <code className="text-emerald-400 font-bold">calculate_route_and_freight()</code> (OSRM road geodesics) + <code className="text-emerald-400 font-bold">get_regional_export_compliance()</code> (EAC standards).
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  💰 Multi-Currency Arbitrage
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  <code className="text-emerald-400 font-bold">fetch_realtime_market_arbitrage()</code> optimizing net farmer payouts across USD, KES, CDF, UGX, and RWF.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  📦 Cryptographic Waybill & WhatsApp
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  <code className="text-emerald-400 font-bold">generate_carrier_waybill()</code> (SHA-256 digital stamps) + <code className="text-emerald-400 font-bold">dispatch_freight_booking()</code> via Twilio WhatsApp.
                 </p>
               </div>
             </div>
@@ -204,7 +223,7 @@ export default function ArchitectureModal({
                 <div>
                   <div className="text-xs font-bold text-white">{t.googleCloudFirestoreAudit}</div>
                   <div className="text-[11px] text-slate-400 font-medium">
-                    Immutable state lifecycle: Initialized → Guardrail Audited → Running Pipeline → Completed
+                    Immutable state lifecycle: Initialized → Guardrail Audited → Multi-Agent Dispatch → Completed
                   </div>
                 </div>
               </div>

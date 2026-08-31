@@ -14,11 +14,8 @@ import {
   Pause,
   Square,
   Bot,
-  User,
-  Sparkles,
   RotateCcw,
-  CheckCircle2,
-  ArrowRight
+  ShieldAlert
 } from 'lucide-react';
 import GeminiIcon from './GeminiIcon';
 import {
@@ -33,11 +30,117 @@ import {
 } from './GenUIWidgets';
 import { translations } from '../utils/translations';
 
+function VoiceMessageBubble({ audioUrl, duration = 12, sender = 'user', audioName: _audioName, lang = 'fr' }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(duration || 12);
+  const audioRef = useRef(null);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play().then(() => {
+        setIsPlaying(true);
+      }).catch(err => {
+        console.warn("Audio playback error:", err);
+      });
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime || 0);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current && audioRef.current.duration && !isNaN(audioRef.current.duration) && isFinite(audioRef.current.duration)) {
+      setAudioDuration(audioRef.current.duration);
+    }
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
+  const formatSecs = (sec) => {
+    const s = Math.floor(sec || 0);
+    const m = Math.floor(s / 60);
+    const remainder = s % 60;
+    return `${m}:${remainder < 10 ? '0' : ''}${remainder}`;
+  };
+
+  const bars = [28, 48, 75, 95, 60, 42, 85, 100, 72, 50, 65, 82, 95, 48, 62, 82, 55, 72, 42, 65, 78, 52];
+  const progressRatio = audioDuration > 0 ? currentTime / audioDuration : 0;
+
+  return (
+    <div className="flex flex-col space-y-1.5 w-full min-w-[210px] max-w-[280px]">
+      <audio
+        ref={audioRef}
+        src={audioUrl}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleEnded}
+      />
+      <div className="flex items-center space-x-2.5">
+        <button
+          type="button"
+          onClick={togglePlay}
+          className={`w-8 h-8 rounded-full flex items-center justify-center transition cursor-pointer shrink-0 ${
+            sender === 'user'
+              ? 'bg-white text-emerald-700 hover:bg-slate-100 shadow-md'
+              : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-md'
+          }`}
+          title={isPlaying ? "Pause" : "Play voice message"}
+        >
+          {isPlaying ? (
+            <Pause className="w-3.5 h-3.5 fill-current" />
+          ) : (
+            <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+          )}
+        </button>
+
+        {/* Waveform Equalizer */}
+        <div className="flex-1 flex items-center gap-0.5 h-6">
+          {bars.map((height, i) => {
+            const barProgress = i / bars.length;
+            const isPassed = barProgress <= progressRatio;
+            return (
+              <div
+                key={i}
+                className={`flex-1 rounded-full transition-all duration-75 ${
+                  isPassed
+                    ? (sender === 'user' ? 'bg-white' : 'bg-emerald-400')
+                    : (sender === 'user' ? 'bg-emerald-300/40' : 'bg-slate-700')
+                }`}
+                style={{ height: `${height}%` }}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-[10px] opacity-80 px-1 font-mono">
+        <span className="flex items-center gap-1">
+          <Mic className="w-2.5 h-2.5" />
+          <span>{lang === 'fr' ? 'Message vocal' : lang === 'sw' ? 'Ujumbe wa sauti' : 'Voice message'}</span>
+        </span>
+        <span>{formatSecs(currentTime > 0 ? currentTime : audioDuration)}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function MultimodalInputCapsule({
   notes,
   setNotes,
   imagePreview,
   setImagePreview,
+  imageFile,
   setImageFile,
   audioName,
   setAudioName,
@@ -47,13 +150,13 @@ export default function MultimodalInputCapsule({
   audioPresetUrl,
   loading,
   onSubmit,
-  onOpenLive,
+  onOpenLive: _onOpenLive,
   lang = 'en',
   setLang,
   showAdvanced,
   setShowAdvanced,
   farmerId,
-  setFarmerId,
+  setFarmerId: _setFarmerId,
   cropOverride,
   setCropOverride,
   volumeOverride,
@@ -61,7 +164,9 @@ export default function MultimodalInputCapsule({
   locationOverride,
   setLocationOverride,
   hasExecuted = false,
-  backendUrl
+  backendUrl,
+  isChatActive = false,
+  setIsChatActive
 }) {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -70,11 +175,13 @@ export default function MultimodalInputCapsule({
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [playbackCurrentTime, setPlaybackCurrentTime] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(8);
-  const [selectedModel, setSelectedModel] = useState('Flash');
+  const [, setSelectedModel] = useState('Flash');
   const [showModelMenu, setShowModelMenu] = useState(false);
-  const [showGenUIStream, setShowGenUIStream] = useState(false);
+  const [showGenUIStream, setShowGenUIStream] = useState(isChatActive);
   const [forceManualText, setForceManualText] = useState(false);
   const [isIntakeLoading, setIsIntakeLoading] = useState(false);
+  const [isTerminated, setIsTerminated] = useState(false);
+  const [terminationReason, setTerminationReason] = useState('');
 
   // Conversational Receptionist Messages (Initial welcome without pre-rendered crop cards)
   const [genuiMessages, setGenuiMessages] = useState([
@@ -92,6 +199,7 @@ export default function MultimodalInputCapsule({
   ]);
 
   // Sync welcome message when language switches
+  // eslint-disable-next-line react-compiler/react-compiler
   useEffect(() => {
     setGenuiMessages(prev => {
       if (prev.length === 1 && prev[0].id === 'welcome') {
@@ -108,17 +216,51 @@ export default function MultimodalInputCapsule({
     });
   }, [lang]);
 
+  // eslint-disable-next-line react-compiler/react-compiler
+  useEffect(() => {
+    setShowGenUIStream(isChatActive);
+  }, [isChatActive]);
+
+  const handleToggleGenUI = () => {
+    if (isTerminated) return;
+    const nextState = !showGenUIStream;
+    setShowGenUIStream(nextState);
+    if (setIsChatActive) {
+      setIsChatActive(nextState);
+    }
+    if (nextState) {
+      setGenuiMessages(prev => {
+        if (prev.length <= 1) {
+          return [{
+            id: 'welcome',
+            sender: 'agent',
+            text: lang === 'sw'
+              ? "Habari! Karibu KilimoAgent. Ni zao gani ungependa kuuza leo?"
+              : lang === 'fr'
+              ? "Bonjour ! Je suis l'Agent Réceptionniste Kilimo. Quelle culture souhaitez-vous expédier aujourd'hui ?"
+              : "Hello! Welcome to KilimoAgent. Which harvest would you like to dispatch today?",
+            widgetType: 'crop_selector',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }];
+        }
+        return prev;
+      });
+    }
+  };
+
   const addGenUIMessage = (msg) => {
     setGenuiMessages((prev) => [...prev, { id: `msg-${Date.now()}-${Math.random()}`, ...msg }]);
   };
 
   const latestAgentMsg = genuiMessages.slice().reverse().find(m => m.sender === 'agent');
-  const isWaitingInteractiveChoice = !forceManualText && showGenUIStream && latestAgentMsg && (
+  // Determine if user has an interactive widget pending (used for conditional text input display)
+  const _isWaitingInteractiveChoice = !forceManualText && showGenUIStream && latestAgentMsg && (
     latestAgentMsg.widgetType === 'crop_selector' ||
     latestAgentMsg.widgetType === 'volume_picker' ||
     latestAgentMsg.widgetType === 'depot_map_picker' ||
     latestAgentMsg.widgetType === 'dispatch_confirmation'
   );
+  void _isWaitingInteractiveChoice;
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -130,7 +272,8 @@ export default function MultimodalInputCapsule({
   const textareaRef = useRef(null);
   const chatStreamEndRef = useRef(null);
 
-  const t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
+  const _t = (typeof lang !== 'undefined' ? translations[lang] : translations.en) || translations.en;
+  void _t;
 
   // Click outside to close dropdowns
   useEffect(() => {
@@ -158,16 +301,22 @@ export default function MultimodalInputCapsule({
 
   // Calculate audio source URL
   const audioSourceUrl = useMemo(() => {
-    if (audioFile) {
-      return URL.createObjectURL(audioFile);
+    if (audioFile && typeof window !== 'undefined' && audioFile instanceof Blob) {
+      try {
+        return URL.createObjectURL(audioFile);
+      } catch (e) {
+        console.warn("Could not create object URL for audioFile", e);
+        return null;
+      }
     }
-    if (audioPresetUrl) {
+    if (typeof audioPresetUrl === 'string' && audioPresetUrl.length > 0) {
       return audioPresetUrl;
     }
     return null;
   }, [audioFile, audioPresetUrl]);
 
   // Audio timer & dynamic waves while recording
+  // eslint-disable-next-line react-compiler/react-compiler
   useEffect(() => {
     let timerInterval = null;
     let waveInterval = null;
@@ -258,17 +407,10 @@ export default function MultimodalInputCapsule({
           const blob = new Blob(audioChunksRef.current, { type: 'audio/mp4' });
           const file = new File([blob], 'farmer_voice_note.mp4', { type: 'audio/mp4' });
           setAudioFile(file);
-          setAudioName('farmer_voice_note.mp4 (Live recorded)');
+          setAudioName(lang === 'fr' ? 'Note vocale enregistrée' : lang === 'sw' ? 'Sauti iliyorekodiwa' : 'Recorded Voice Note');
           setAudioPresetUrl(null);
           setPlaybackCurrentTime(0);
           stream.getTracks().forEach((track) => track.stop());
-
-          // Append user audio message in GenUI stream
-          addGenUIMessage({
-            sender: 'user',
-            text: "🎙️ [Farmer Voice Note Attached]",
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          });
         };
 
         mediaRecorderRef.current.start();
@@ -287,15 +429,9 @@ export default function MultimodalInputCapsule({
   const handleImageUpload = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      setImageFile(file);
+      setImageFile?.(file);
       const url = URL.createObjectURL(file);
-      setImagePreview(url);
-
-      addGenUIMessage({
-        sender: 'user',
-        text: `📷 [Attached Harvest Photo: ${file.name}]`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      });
+      setImagePreview?.(url);
     }
     setShowAttachMenu(false);
   };
@@ -309,12 +445,6 @@ export default function MultimodalInputCapsule({
       setAudioPresetUrl(null);
       setIsPlayingAudio(false);
       setPlaybackCurrentTime(0);
-
-      addGenUIMessage({
-        sender: 'user',
-        text: `🎙️ [Attached Audio File: ${file.name}]`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      });
     }
     setShowAttachMenu(false);
   };
@@ -322,6 +452,9 @@ export default function MultimodalInputCapsule({
   const removeImage = () => {
     setImagePreview?.(null);
     setImageFile?.(null);
+    if (fileImageInputRef.current) {
+      fileImageInputRef.current.value = "";
+    }
   };
 
   const removeAudio = () => {
@@ -333,6 +466,9 @@ export default function MultimodalInputCapsule({
     setAudioName?.(null);
     setAudioFile?.(null);
     setAudioPresetUrl?.(null);
+    if (fileAudioInputRef.current) {
+      fileAudioInputRef.current.value = "";
+    }
   };
 
   const handleTextChange = (e) => {
@@ -438,40 +574,35 @@ export default function MultimodalInputCapsule({
   const handleFormSubmit = async (e) => {
     if (e) e.preventDefault();
     if (loading || isIntakeLoading) return;
-
-    // If input text is empty but an interactive GenUI widget is waiting, auto-select the on-screen choice
-    if ((!notes || notes.trim().length === 0) && isWaitingInteractiveChoice) {
-      if (latestAgentMsg.widgetType === 'crop_selector') {
-        handleGenUISelectCrop(cropOverride || "Maize (Mahindi)");
-        return;
-      }
-      if (latestAgentMsg.widgetType === 'volume_picker') {
-        handleGenUISelectVolume(parseFloat(volumeOverride) || 2700);
-        return;
-      }
-      if (latestAgentMsg.widgetType === 'depot_map_picker') {
-        handleGenUISelectDepot(locationOverride || "Bunia Depot");
-        return;
-      }
-      if (latestAgentMsg.widgetType === 'dispatch_confirmation') {
-        if (onSubmit) onSubmit();
-        return;
-      }
-    }
-
     handleTextSubmit();
   };
 
   const handleTextSubmit = async (textToSend) => {
     const rawText = (typeof textToSend === 'string' ? textToSend : notes) || "";
-    if (rawText.trim().length > 0 || imageFile || audioFile || audioPresetUrl) {
-      const userText = rawText.trim();
+    if (rawText.trim().length > 0 || audioFile || audioPresetUrl || imageFile || imagePreview) {
+      const currentImageToSend = imagePreview;
+      const currentImageFileToSend = imageFile;
+      const currentAudioFileToSend = audioFile;
+      const currentAudioPresetToSend = audioPresetUrl;
+      const audioUrlToPlay = currentAudioFileToSend 
+        ? URL.createObjectURL(currentAudioFileToSend) 
+        : currentAudioPresetToSend;
+      const isVoiceMessage = Boolean(currentAudioFileToSend || currentAudioPresetToSend);
+
+      const fallbackText = currentImageFileToSend
+        ? (lang === 'fr' ? 'Voici la photo de ma récolte.' : lang === 'sw' ? 'Hii hapa picha ya mazao yangu.' : 'Here is my harvest photo.')
+        : (currentAudioFileToSend ? '' : '');
+      const userText = rawText.trim() || fallbackText;
+
       setNotes?.("");
+      removeImage();
+      removeAudio();
       setShowGenUIStream(true);
+      if (setIsChatActive) setIsChatActive(true);
       setIsIntakeLoading(true);
 
       // 1. Instant Client-Side Language Detection & Global App State Adaptation
-      const lower = userText.toLowerCase();
+      const lower = (userText || '').toLowerCase();
       let autoLang = lang;
       if (
         /^(salut|bonjour|bonsoir|coucou|allo|allô|bienvenue|je\s|j'ai|combien|merci|vente|recolte|récolte|culture|dépôt|depot|que\s+penses)/i.test(lower) ||
@@ -494,15 +625,18 @@ export default function MultimodalInputCapsule({
         setLang(autoLang);
       }
 
-      // Add user message in UI immediately
+      // Add user message in UI immediately with image thumbnail + text + voice player (like WhatsApp)
       const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      if (userText) {
-        addGenUIMessage({
-          sender: 'user',
-          text: userText,
-          time: currentTime
-        });
-      }
+      addGenUIMessage({
+        sender: 'user',
+        text: userText || null,
+        image: currentImageToSend,
+        isVoiceNote: isVoiceMessage,
+        audioUrl: audioUrlToPlay,
+        audioDuration: playbackDuration || 12,
+        audioName: currentAudioFileToSend?.name || 'Voice Note',
+        time: currentTime
+      });
 
       // 2. Call Multi-Agent Receptionist Endpoint
       try {
@@ -513,7 +647,7 @@ export default function MultimodalInputCapsule({
         const formData = new FormData();
         formData.append('user_id', farmerId || 'farmer_guest');
         formData.append('session_id', 'session_web_chat');
-        formData.append('message', userText || (audioFile ? '[Farmer Voice Note Recorded]' : (imageFile ? 'Voici la photo de ma récolte.' : '')));
+        formData.append('message', userText);
         formData.append('preferred_language', autoLang);
         formData.append('execute_on_ready', 'false');
         formData.append('current_params', JSON.stringify({
@@ -522,11 +656,11 @@ export default function MultimodalInputCapsule({
           origin: locationOverride
         }));
 
-        if (imageFile) {
-          formData.append('image', imageFile);
+        if (currentImageFileToSend) {
+          formData.append('image', currentImageFileToSend);
         }
-        if (audioFile) {
-          formData.append('audio', audioFile);
+        if (currentAudioFileToSend) {
+          formData.append('audio', currentAudioFileToSend);
         }
 
         const res = await fetch(`${effectiveBackend}/api/v1/intake/chat`, {
@@ -539,11 +673,30 @@ export default function MultimodalInputCapsule({
           if (data.detected_language && ['en', 'fr', 'sw'].includes(data.detected_language) && setLang) {
             setLang(data.detected_language);
           }
+          if (data.action === "TERMINATE_SESSION" || data.is_terminated || (data.reply && (data.reply.includes("ALERTE SÉCURITÉ") || data.reply.includes("SECURITY ALERT") || data.reply.includes("ILANI YA USALAMA")))) {
+            setIsTerminated(true);
+            setTerminationReason(userText || '');
+            setShowGenUIStream(false);
+            if (setIsChatActive) setIsChatActive(false);
+          }
 
           const ext = data.extracted_params || {};
           if (ext.crop && setCropOverride) setCropOverride(ext.crop);
           if (ext.volume_kg && setVolumeOverride) setVolumeOverride(ext.volume_kg.toString());
           if (ext.origin_depot && setLocationOverride) setLocationOverride(ext.origin_depot);
+
+          // If the parameters are verified/ready and this is a follow-up or complete request, recalculate directly!
+          if (data.is_ready && onSubmit && (hasExecuted || (ext.crop && ext.volume_kg && ext.origin_depot))) {
+            setIsIntakeLoading(false);
+            onSubmit(null, {
+              crop: ext.crop || cropOverride,
+              volume_kg: ext.volume_kg || parseFloat(volumeOverride),
+              location: ext.origin_depot || locationOverride
+            });
+            setShowGenUIStream(false);
+            if (setIsChatActive) setIsChatActive(false);
+            return;
+          }
 
           let widget = null;
           if (data.genui_widgets && data.genui_widgets.length > 0) {
@@ -570,6 +723,25 @@ export default function MultimodalInputCapsule({
       }
 
       // Client-side deterministic fallback
+      const isHarmfulViolence = /(kill\s+(my|someone|a|the|her|him|them|people|gf|girlfriend|bf|boyfriend|wife|husband)|ingredient\s+to\s+kill|murder|assassinate|slaughter|tuer\s+(ma|mon|quelqu|une|un|les|des|sa|son|sa\s+copine|sa\s+femme)|assassiner|[ée]gorger|kuua\s+(mtu|mke|mume|mpenzi|rafiki)|sumu|poison|cyanure|arsenique)/i.test(lower);
+      if (isHarmfulViolence) {
+        setIsTerminated(true);
+        setTerminationReason(userText || '');
+        setShowGenUIStream(false);
+        if (setIsChatActive) setIsChatActive(false);
+        setIsIntakeLoading(false);
+        return;
+      }
+
+      const isCoercive = /(c['’]est\s+une\s+obligation|donne[- ]moi|je\s+t['’]oblige|je\s+t['’]ordonne|ob[ée]is[- ]moi|fais\s+ce\s+que\s+je\s+(te\s+)?dis|t['’]as\s+pas\s+le\s+choix|force[- ]toi|je\s+t['’]impose|tu\s+dois\s+m['’]ob[ée]ir|lazima\s+unipe|nakulazimisha|nakuamuru|fanya\s+ninachosema|i\s+command\s+you|i\s+force\s+you|you\s+must\s+obey|do\s+as\s+i\s+say)/i.test(lower);
+      if (isCoercive) {
+        setIsTerminated(true);
+        setTerminationReason(userText || '');
+        setShowGenUIStream(false);
+        if (setIsChatActive) setIsChatActive(false);
+        setIsIntakeLoading(false);
+        return;
+      }
       const isSelfHarm = /(me\s+tuer|suicide|suicider|mourir|mettre\s+fin\s+[aà]\s+mes\s+jours|kujiua|kujinyonga|kuua\s+nafsi|kill\s+myself|end\s+my\s+life)/i.test(lower);
       if (isSelfHarm) {
         setTimeout(() => {
@@ -715,28 +887,25 @@ export default function MultimodalInputCapsule({
     }
   };
 
-  const formatAudioTime = (seconds) => {
-    if (isNaN(seconds) || seconds === null) return '0:00';
-    const totalSec = Math.floor(seconds);
-    const m = Math.floor(totalSec / 60);
-    const s = (totalSec % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
+  // formatAudioTime is used inside VoiceMessageBubble; keeping available for future inline usage
+  // const formatAudioTime = (seconds) => {
+  //   if (isNaN(seconds) || seconds === null) return '0:00';
+  //   const totalSec = Math.floor(seconds);
+  //   const m = Math.floor(totalSec / 60);
+  //   const s = (totalSec % 60).toString().padStart(2, '0');
+  //   return `${m}:${s}`;
+  // };
 
   const isGenUIActive = showGenUIStream && genuiMessages.length > 1;
   const hasValidInput = Boolean(
     (notes && notes.trim().length > 0) ||
-    imageFile ||
-    imagePreview ||
     audioName ||
     audioFile ||
     audioPresetUrl ||
-    cropOverride ||
-    volumeOverride ||
-    locationOverride ||
-    isWaitingInteractiveChoice
+    imageFile ||
+    imagePreview
   );
-  const canSubmit = !loading && (hasValidInput || isWaitingInteractiveChoice) && !isRecording;
+  const canSubmit = !loading && hasValidInput && !isRecording;
 
   const formatTimer = (sec) => {
     const totalSec = Math.max(0, Math.floor(sec || 0));
@@ -756,9 +925,12 @@ export default function MultimodalInputCapsule({
     if (setCropOverride) setCropOverride("");
     if (setVolumeOverride) setVolumeOverride("");
     if (setLocationOverride) setLocationOverride("");
-    if (setSelectedPresetId) setSelectedPresetId(null);
     setIsIntakeLoading(false);
     setForceManualText(false);
+    setIsTerminated(false);
+    setTerminationReason('');
+    setShowGenUIStream(false);
+    if (setIsChatActive) setIsChatActive(false);
 
     const welcomeMap = {
       sw: "Habari! Karibu KilimoAgent. Mimi ni msaidizi wako wa kilimo na usafirishaji. Ni zao gani ungependa kuuza leo?",
@@ -778,7 +950,7 @@ export default function MultimodalInputCapsule({
   };
 
   return (
-    <div className="max-w-3xl w-full mx-auto space-y-3">
+    <div className="max-w-3xl w-full mx-auto flex flex-col justify-end space-y-3 flex-1 h-full min-h-0">
       {/* Hidden File Inputs */}
       <input
         type="file"
@@ -809,8 +981,8 @@ export default function MultimodalInputCapsule({
 
       {/* GenUI Receptionist Conversational Stream */}
       {showGenUIStream && (
-        <div className="bg-[#0B0F19] border border-slate-800 rounded-3xl p-4 sm:p-5  space-y-4 max-h-[460px] overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="bg-[#0B0F19] border border-slate-800 rounded-3xl p-4 sm:p-5 space-y-3 flex-1 min-h-0 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
             <div className="flex items-center space-x-2.5">
               <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
                 <Bot className="w-4 h-4 text-emerald-400" />
@@ -839,7 +1011,7 @@ export default function MultimodalInputCapsule({
 
               <button
                 type="button"
-                onClick={() => setShowGenUIStream(false)}
+                onClick={handleToggleGenUI}
                 className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer"
                 title="Minimize GenUI stream"
               >
@@ -848,8 +1020,8 @@ export default function MultimodalInputCapsule({
             </div>
           </div>
 
-          {/* Messages Stream */}
-          <div className="space-y-4">
+          {/* Messages Stream (Fill remaining height with smooth scroll) */}
+          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-4 pr-1">
             {genuiMessages.map((msg) => (
               <div
                 key={msg.id}
@@ -862,13 +1034,37 @@ export default function MultimodalInputCapsule({
                 </div>
 
                 <div
-                  className={`max-w-[92%] sm:max-w-[85%] rounded-2xl p-3.5 text-xs sm:text-sm ${
+                  className={`max-w-[92%] sm:max-w-[85%] rounded-2xl p-3.5 text-xs sm:text-sm leading-relaxed ${
                     msg.sender === 'user'
-                      ? 'bg-emerald-600 text-white rounded-br-none font-medium'
+                      ? 'bg-emerald-600 text-white rounded-br-none font-medium whitespace-pre-wrap'
                       : 'bg-[#0F172A] text-slate-200 rounded-bl-none border border-slate-800'
                   }`}
                 >
-                  {msg.text}
+                  {msg.image && (
+                    <div className="mb-2.5 overflow-hidden rounded-xl border border-white/20">
+                      <img
+                        src={msg.image}
+                        alt="Crop specimen"
+                        className="w-full max-h-52 object-cover rounded-xl"
+                      />
+                    </div>
+                  )}
+
+                  {msg.isVoiceNote && (
+                    <VoiceMessageBubble
+                      audioUrl={msg.audioUrl}
+                      duration={msg.audioDuration}
+                      sender={msg.sender}
+                      audioName={msg.audioName}
+                      lang={lang}
+                    />
+                  )}
+
+                  {msg.text && (
+                    <div className={msg.isVoiceNote ? 'mt-2 pt-2 border-t border-white/20' : ''}>
+                      {msg.text}
+                    </div>
+                  )}
                 </div>
 
                 {/* Render Dynamic GenUI Widget */}
@@ -900,14 +1096,21 @@ export default function MultimodalInputCapsule({
 
                     {msg.widgetType === 'photo_quality' && (
                       <GenUIPhotoQualityCard
-                        imagePreview={imagePreview}
-                        onPhotoUpload={(file, url) => {
-                          setImageFile(file);
-                          setImagePreview(url);
-                        }}
-                        onPhotoCapture={(url) => setImagePreview(url)}
-                        onRemovePhoto={removeImage}
+                        cropHint={cropOverride || "Maize"}
+                        backendUrl={backendUrl}
                         lang={lang}
+                        onConfirmAnalysis={(analysis, _previewUrl) => {
+                          if (analysis.detected_crop && setCropOverride) {
+                            setCropOverride(analysis.detected_crop);
+                          }
+                          const grade = analysis.quality_grade || "Grade A";
+                          const confirmText = lang === 'fr'
+                            ? `Photo analysée : Récolte de ${analysis.detected_crop || cropOverride || 'Maïs'} (${grade}, humidité ${analysis.moisture_estimated_pct || 12.4}%).`
+                            : lang === 'sw'
+                            ? `Picha imekaguliwa: Mazao ya ${analysis.detected_crop || cropOverride || 'Mahindi'} (${grade}, unyevu ${analysis.moisture_estimated_pct || 12.4}%).`
+                            : `Photo analyzed: Harvest of ${analysis.detected_crop || cropOverride || 'Maize'} (${grade}, moisture ${analysis.moisture_estimated_pct || 12.4}%).`;
+                          handleTextSubmit(confirmText);
+                        }}
                       />
                     )}
 
@@ -974,9 +1177,43 @@ export default function MultimodalInputCapsule({
         </div>
       )}
 
-      {/* Main Gemini Studio Input Capsule */}
-      <div className="bg-[#131722] border border-slate-800 rounded-3xl p-4 sm:p-5  focus-within:border-emerald-500 transition-all space-y-3">
-        {/* Top Attached Image Thumbnails */}
+      {/* Main Gemini Studio Input Capsule or Locked State */}
+      {isTerminated ? (
+        <div className="sticky bottom-0 z-20 bg-rose-950/90 border border-rose-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl backdrop-blur-md flex flex-col gap-3 animate-in fade-in duration-200 shrink-0">
+          <div className="flex items-start space-x-3 text-rose-300 text-xs sm:text-sm font-bold min-w-0">
+            <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="min-w-0 space-y-1.5">
+              <span className="block">
+                {lang === 'fr'
+                  ? "Session verrouillée par mesure de sécurité. La saisie est désactivée."
+                  : lang === 'sw'
+                  ? "Kikao kimefungwa kwa itifaki za usalama. Huwezi kuandika tena."
+                  : "Session locked by platform security guardrails. Chat input disabled."}
+              </span>
+              {terminationReason && (
+                <span className="block text-[11px] sm:text-xs font-medium text-rose-400/80 italic">
+                  {lang === 'fr'
+                    ? `Motif : « ${terminationReason} »`
+                    : lang === 'sw'
+                    ? `Sababu: “${terminationReason}”`
+                    : `Reason: “${terminationReason}”`}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleFullReset}
+              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition cursor-pointer shrink-0 shadow-lg shadow-emerald-500/20"
+            >
+              {lang === 'fr' ? "Recommencer" : lang === 'sw' ? "Anza upya" : "Start New Request"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="sticky bottom-0 z-20 bg-[#131722] border border-slate-800 rounded-3xl p-4 sm:p-5 focus-within:border-emerald-500 shadow-2xl transition-all space-y-3 shrink-0">
+          {/* Top Attached Image Thumbnails */}
         {imagePreview && (
           <div className="flex flex-wrap items-center gap-3 pt-1 pb-2 border-b border-slate-800">
             <div className="relative group rounded-2xl overflow-hidden border border-slate-700 bg-slate-900">
@@ -1108,22 +1345,7 @@ export default function MultimodalInputCapsule({
                 <X className="w-4 h-4" />
               </button>
             </div>
-          ) : isWaitingInteractiveChoice ? (
-            /* State 3A: Interactive GenUI Step Guidance */
-            <div className="w-full py-2.5 px-3.5 rounded-2xl bg-slate-950/90 border border-emerald-500/40 flex items-center space-x-2.5 animate-in fade-in duration-200">
-              <GeminiIcon className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span className="text-xs font-bold text-emerald-300 truncate">
-                {latestAgentMsg.widgetType === 'crop_selector'
-                  ? (t.selectCropAbove || "👆 Select your crop commodity from the cards above")
-                  : latestAgentMsg.widgetType === 'volume_picker'
-                  ? (t.chooseVolumeAbove || "⚖️ Select your volume from the presets above")
-                  : latestAgentMsg.widgetType === 'depot_map_picker'
-                  ? (t.tapDepotOnMap || "🗺️ Click your collection depot on the map above")
-                  : (t.confirmDispatchAbove || "Click Launch Kilimo Agent above")}
-              </span>
-            </div>
           ) : (
-            /* State 3B: Standard Textarea */
             <textarea
               ref={textareaRef}
               rows={1}
@@ -1216,7 +1438,7 @@ export default function MultimodalInputCapsule({
             {/* GenUI Assistant Toggle Chip */}
             <button
               type="button"
-              onClick={() => setShowGenUIStream(!showGenUIStream)}
+              onClick={handleToggleGenUI}
               className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition cursor-pointer ${
                 showGenUIStream
                   ? 'bg-emerald-500 text-slate-950 border border-emerald-400'
@@ -1273,16 +1495,6 @@ export default function MultimodalInputCapsule({
                 >
                   {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                 </button>
-
-                {/* Red Live Button */}
-                <button
-                  type="button"
-                  onClick={onOpenLive}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/40 text-rose-300 text-xs font-extrabold transition cursor-pointer"
-                >
-                  <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
-                  <span>{t.liveBadge}</span>
-                </button>
               </>
             )}
 
@@ -1307,6 +1519,7 @@ export default function MultimodalInputCapsule({
           </div>
         </div>
       </div>
+      )}
 
       {/* Optional Advanced Accordion */}
       {showAdvanced && (

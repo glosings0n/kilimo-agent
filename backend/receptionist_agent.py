@@ -9,6 +9,7 @@ from google.genai import types
 from google.adk import Agent, Runner
 from google.adk.sessions import InMemorySessionService
 from tools.multimodal_grading import grade_and_validate_harvest_image, validate_and_transcribe_voice_note
+from tools.market_and_logistics import get_regional_export_compliance
 from guardrails.gemma_guard import GemmaModelArmor
 
 from config.models import DEFAULT_GEMINI_MODEL as MODEL_NAME
@@ -180,6 +181,39 @@ def _extract_crop_rule(text: str) -> Optional[str]:
     return None
 
 
+def _extract_unrecognized_crop_mention(text: str) -> Optional[str]:
+    """Detects when a user explicitly mentions a crop or commodity that is not in the known dictionary."""
+    if not text:
+        return None
+    text_clean = text.strip()
+    
+    # Check if the text itself is flagged as harmful / sexual / racist / toxic
+    flag = _receptionist_armor.detect_harmful_or_offtopic(text_clean)
+    if flag.get("is_flagged"):
+        return None
+
+    # Match phrases like "vendre le/du/de la X", "kuuza X", "selling X", "j'ai du X"
+    match = re.search(r'(?:vendre|kuuza|selling|sell|vends|recolte|récolte|zao|harvest|j\'ai\s+du|j\'ai\s+de\s+la|j\'ai\s+des|nina)\s+(?:le\s+|la\s+|du\s+|de\s+la\s+|des\s+|l\')?([a-zA-Z\u00C0-\u00FF]+)', text_clean, re.IGNORECASE)
+    if match:
+        word = match.group(1).strip()
+        if len(word) > 2 and word.lower() not in ["justement", "ici", "svp", "moi", "bien", "directement", "aussi", "maintenant", "aujourd'hui", "un", "une", "mon", "ma", "mes", "notre", "nos", "ceci", "cela", "quelque", "chose", "truc", "tout", "beaucoup", "kilo", "kg", "sacs", "tonnes"]:
+            word_flag = _receptionist_armor.detect_harmful_or_offtopic(word)
+            if not word_flag.get("is_flagged"):
+                return word.capitalize()
+    
+    # If text is 1 or 2 words (e.g. "Mushisha", "Le mushisha")
+    words = [w for w in re.sub(r'[^\w\s]', '', text_clean).split() if w]
+    if 1 <= len(words) <= 4:
+        meaningful = [w for w in words if len(w) > 2 and w.lower() not in ["je", "veux", "vendre", "le", "la", "les", "du", "de", "des", "un", "une", "mon", "ma", "mes", "justement", "ici", "svp", "moi", "nina", "nataka", "kuuza", "hapa", "zao", "i", "want", "to", "sell", "my", "our", "the", "crop", "harvest", "salut", "bonjour", "habari", "hello", "hi", "sasa", "jambo"]]
+        if meaningful:
+            cand = meaningful[0].capitalize()
+            cand_flag = _receptionist_armor.detect_harmful_or_offtopic(cand)
+            if not cand_flag.get("is_flagged"):
+                return cand
+            
+    return None
+
+
 def _extract_volume_rule(text: str) -> Optional[float]:
     text_l = text.lower().replace(",", "")
     
@@ -266,6 +300,17 @@ def _is_pure_greeting(text: str) -> bool:
     return all(w in greetings or w in courtesy for w in clean_words)
 
 
+def _is_compliance_question(text: str) -> bool:
+    if not text:
+        return False
+    t = text.lower()
+    return any(k in t for k in [
+        "norme", "standard", "eac", "comesa", "aflatoxin", "aflatoxine", "humidite", "humidité", "moisture",
+        "kephis", "onapac", "occ", "sps", "phytosanitaire", "vigezo", "sheria", "kanuni", "export standard",
+        "customs", "douane", "certificat", "certificate", "regulatory"
+    ])
+
+
 def _rule_based_triage(
     message: str,
     context_state: Optional[Dict[str, Any]] = None,
@@ -275,6 +320,16 @@ def _rule_based_triage(
 ) -> Dict[str, Any]:
     """Deterministic fallback triage when LLM is unavailable or offline."""
     ctx = dict(context_state or {})
+    if "volume" in ctx and "volume_kg" not in ctx:
+        try:
+            ctx["volume_kg"] = float(str(ctx["volume"]).replace(",", "").replace("kg", "").replace("KG", "").strip())
+        except (ValueError, TypeError):
+            pass
+    if "origin" in ctx and "origin_depot" not in ctx:
+        ctx["origin_depot"] = ctx["origin"]
+    if "destination" in ctx and "destination_preference" not in ctx:
+        ctx["destination_preference"] = ctx["destination"]
+
     clean_msg = message
     detected = _detect_lang_receptionist(clean_msg)
     active_lang = detected or lang or "en"
@@ -286,17 +341,17 @@ def _rule_based_triage(
         img_res = grade_and_validate_harvest_image(image_bytes, ctx.get("crop"))
         if not img_res.get("is_valid_crop", False):
             reply_map = {
-                "sw": f"Samahani, picha imekataliwa: {img_res.get('rejection_reason', 'Tafadhali weka picha sahihi ya zao lako.')}",
-                "fr": f"Désolé, l'image est rejetée: {img_res.get('rejection_reason', 'Veuillez télécharger une photo claire de votre récolte.')}",
-                "en": f"Image rejected: {img_res.get('rejection_reason', 'Please upload a clear photo of your harvest.')}"
+                "sw": "Picha uliyotuma haionekani kuwa zao halisi la kilimo (k.m. Mahindi, Muhogo, Kahawa, Maharagwe, Nyanya). Ili KilimoAgent iweze kukagua ubora na kukupatia bei bora sokoni, tafadhali tuma picha halisi ya mazao yako au taja zao lako kwa maandishi.",
+                "fr": "L'image reçue ne correspond pas à une récolte agricole valide (ex. Maïs, Manioc, Café, Haricots, Tomates). Pour que KilimoAgent puisse inspecter la qualité et calculer vos gains, veuillez envoyer une photo claire de vos produits agricoles ou préciser votre culture par écrit.",
+                "en": "The uploaded image is not a recognized agricultural crop (e.g. Maize, Cassava, Coffee, Beans, Tomatoes). To inspect quality and calculate optimal market prices, please upload a clear photo of your agricultural harvest or declare your crop."
             }
             return {
                 "reply": reply_map.get(active_lang, reply_map["en"]),
                 "intent": "NEEDS_CLARIFICATION",
                 "detected_language": active_lang,
                 "extracted_params": ctx,
-                "missing_fields": [],
-                "genui_widgets": ["photo_capture"],
+                "missing_fields": ["crop"],
+                "genui_widgets": ["photo_capture", "crop_selector"],
                 "is_ready": False
             }
         else:
@@ -358,6 +413,64 @@ def _rule_based_triage(
             "is_ready": False
         }
 
+    # 1b. EAC / COMESA Compliance & Standards Inquiry
+    if _is_compliance_question(clean_msg):
+        detected_crop = _extract_crop_rule(clean_msg) or ctx.get("crop") or "maize"
+        target_country = "DRC" if any(c in clean_msg.lower() for c in ["drc", "congo", "rdc", "goma", "bukavu", "bunia"]) else "Kenya"
+        comp = get_regional_export_compliance(detected_crop, target_country)
+        
+        std_code = comp.get("harmonized_standard", "EAS Harmonized Standard")
+        limits = comp.get("quality_compliance_limits", {})
+        moist = limits.get("moisture_ceiling_pct", 13.5)
+        aflatoxin = limits.get("total_aflatoxin_ppb_max", 10.0)
+        auth = comp.get("regulatory_framework", {}).get("plant_health_authority", "National Plant Health Inspectorate")
+        tariff = comp.get("regulatory_framework", {}).get("tariff_regime", "0% Tariff under EAC / COMESA Protocol")
+
+        if active_lang == "sw":
+            reply = (
+                f"🌾 *Vigezo Rasmi vya Usafirishaji EAC/COMESA kwa {comp.get('crop')}*:\n\n"
+                f"• *Kiwango Rasmi*: {std_code}\n"
+                f"• *Ukomo wa Unyevu*: Upeo wa {moist}% (moisture ceiling)\n"
+                f"• *Kiwango cha Aflatoxin*: Upeo wa {aflatoxin} ppb (B1 <= 5.0 ppb)\n"
+                f"• *Mamlaka ya Ukaguzi*: {auth}\n"
+                f"• *Ushuru wa Forodha*: {tariff}\n\n"
+                f"Je, unataka kusafirisha mzigo wa {comp.get('crop')} leo? Taja uzito (KG) na kituo cha makusanyo kuanza!"
+            )
+        elif active_lang == "fr":
+            reply = (
+                f"🌾 *Normes Officielles d'Exportation EAC/COMESA pour {comp.get('crop')}* :\n\n"
+                f"• *Norme Harmonisée* : {std_code}\n"
+                f"• *Plafond d'Humidité* : Maximum {moist}% d'humidité\n"
+                f"• *Seuil d'Aflatoxine Totale* : Maximum {aflatoxin} ppb (Aflatoxine B1 <= 5.0 ppb)\n"
+                f"• *Autorité Phytosanitaire* : {auth}\n"
+                f"• *Régime Tarifaire* : {tariff}\n\n"
+                f"Souhaitez-vous expédier votre récolte de {comp.get('crop')} ? Indiquez le volume (KG) et votre dépôt de départ !"
+            )
+        else:
+            reply = (
+                f"🌾 *Official EAC/COMESA Export Standards for {comp.get('crop')}*:\n\n"
+                f"• *Standard Code*: {std_code}\n"
+                f"• *Moisture Ceiling*: Maximum {moist}%\n"
+                f"• *Total Aflatoxin Limit*: Maximum {aflatoxin} ppb (B1 <= 5.0 ppb)\n"
+                f"• *Phytosanitary Authority*: {auth}\n"
+                f"• *Customs Tariff*: {tariff}\n\n"
+                f"Would you like to dispatch a batch of {comp.get('crop')}? Please provide the volume (KG) and collection depot to begin!"
+            )
+
+        widgets = []
+        if not ctx.get("volume_kg"): widgets.append("volume_picker")
+        if not ctx.get("origin_depot"): widgets.append("map_picker")
+
+        return {
+            "reply": reply,
+            "intent": "COMPLIANCE_INQUIRY",
+            "detected_language": active_lang,
+            "extracted_params": ctx,
+            "missing_fields": [f for f in ["crop", "volume_kg", "origin_depot", "destination_preference"] if not ctx.get(f)],
+            "genui_widgets": widgets or ["volume_picker"],
+            "is_ready": False
+        }
+
     # 2. Extract new variables
     found_crop = _extract_crop_rule(clean_msg) or ctx.get("crop")
     found_volume = _extract_volume_rule(clean_msg) or ctx.get("volume_kg")
@@ -411,9 +524,18 @@ def _rule_based_triage(
 
     # Formulate targeted clarifying question
     if "crop" in missing:
-        if active_lang == "sw": reply = "Tafadhali tueleze ni zao gani unalouza (k.m. Mahindi, Maharagwe, Muhogo)?"
-        elif active_lang == "fr": reply = "Veuillez préciser la culture que vous souhaitez vendre (ex. Maïs, Manioc, Haricots) ?"
-        else: reply = "Could you please specify which crop you are selling (e.g. Maize, Beans, Cassava)?"
+        unrecog_word = _extract_unrecognized_crop_mention(clean_msg)
+        if unrecog_word:
+            if active_lang == "sw":
+                reply = f"Sifahamu vizuri zao la '{unrecog_word}'. Je, unaweza kunitajia jina lake rasmi la kibiashara kwa Kiswahili au Kiingereza (k.m. Mahindi, Maharagwe, Muhogo, Kahawa) au kunitumia picha ya mavuno hayo kupitia kitufe cha 📎 ili nitambue na kukadiria daraja la ubora?"
+            elif active_lang == "fr":
+                reply = f"Je ne connais pas encore la culture '{unrecog_word}'. Pouvez-vous me préciser son nom usuel en français ou swahili (ex. Maïs, Manioc, Haricots, Café, Patates) ou m'envoyer une photo de votre récolte via le bouton 📎 pour que je l'identifie ?"
+            else:
+                reply = f"I don't recognize the crop '{unrecog_word}'. Could you provide its common commercial name (e.g. Maize, Cassava, Beans, Coffee) or attach a photo of your harvest using the 📎 button so I can identify and grade it?"
+        else:
+            if active_lang == "sw": reply = "Tafadhali tueleze ni zao gani unalouza (k.m. Mahindi, Maharagwe, Muhogo, Kahawa)?"
+            elif active_lang == "fr": reply = "Veuillez préciser la culture que vous souhaitez vendre (ex. Maïs, Manioc, Haricots, Café, Tomates) ?"
+            else: reply = "Could you please specify which crop you are selling (e.g. Maize, Beans, Cassava, Coffee)?"
     elif "volume_kg" in missing:
         crop_name = found_crop or ("zao lako" if active_lang == "sw" else "votre récolte" if active_lang == "fr" else "your crop")
         if img_data:
@@ -475,17 +597,17 @@ async def run_receptionist_triage(
         img_res = grade_and_validate_harvest_image(image_bytes, ctx.get("crop"))
         if not img_res.get("is_valid_crop", False):
             reply_map = {
-                "sw": f"Samahani, picha imekataliwa: {img_res.get('rejection_reason', 'Tafadhali weka picha sahihi ya zao lako.')}",
-                "fr": f"Désolé, l'image est rejetée: {img_res.get('rejection_reason', 'Veuillez télécharger une photo claire de votre récolte.')}",
-                "en": f"Image rejected: {img_res.get('rejection_reason', 'Please upload a clear photo of your harvest.')}"
+                "sw": "Picha uliyotuma haionekani kuwa zao halisi la kilimo (k.m. Mahindi, Muhogo, Kahawa, Maharagwe, Nyanya). Ili KilimoAgent iweze kukagua ubora na kukupatia bei bora sokoni, tafadhali tuma picha halisi ya mazao yako au taja zao lako kwa maandishi.",
+                "fr": "L'image reçue ne correspond pas à une récolte agricole valide (ex. Maïs, Manioc, Café, Haricots, Tomates). Pour que KilimoAgent puisse inspecter la qualité et calculer vos gains, veuillez envoyer une photo claire de vos produits agricoles ou préciser votre culture par écrit.",
+                "en": "The uploaded image is not a recognized agricultural crop (e.g. Maize, Cassava, Coffee, Beans, Tomatoes). To inspect quality and calculate optimal market prices, please upload a clear photo of your agricultural harvest or declare your crop."
             }
             return {
                 "reply": reply_map.get(active_lang, reply_map["en"]),
                 "intent": "NEEDS_CLARIFICATION",
                 "detected_language": active_lang,
                 "extracted_params": ctx,
-                "missing_fields": [],
-                "genui_widgets": ["photo_capture"],
+                "missing_fields": ["crop"],
+                "genui_widgets": ["photo_capture", "crop_selector"],
                 "is_ready": False
             }
         else:
@@ -545,10 +667,7 @@ async def run_receptionist_triage(
     )
 
     try:
-        # Run with short timeout to avoid blocking if network/quota is unresponsive
-        loop = asyncio.get_event_loop()
-        
-        async def _call_gemini():
+        def _call_gemini():
             return genai_client.models.generate_content(
                 model=MODEL_NAME,
                 contents=[prompt],
@@ -559,7 +678,7 @@ async def run_receptionist_triage(
                 )
             )
 
-        response = await asyncio.wait_for(_call_gemini(), timeout=4.0)
+        response = await asyncio.wait_for(asyncio.to_thread(_call_gemini), timeout=6.0)
         if response and response.text:
             parsed = json.loads(response.text)
             extracted = parsed.get("extracted_params", {})

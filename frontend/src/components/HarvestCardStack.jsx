@@ -26,7 +26,7 @@ import {
 import GeminiIcon from './GeminiIcon';
 import { translations } from '../utils/translations';
 import { CountryFlag } from './Flags';
-import { getCropsCatalog } from './GenUIWidgets';
+import { getCropsCatalog, isHarmfulOrProhibitedTerm } from './GenUIWidgets';
 
 const VOLUME_PRESETS = [500, 1000, 2700, 5000, 10000];
 
@@ -209,9 +209,6 @@ export default function HarvestCardStack({
 
   const handleSelectCrop = (crop) => {
     setCropOverride(crop.name);
-    if (!notes) {
-      setNotes(crop.defaultNotes);
-    }
   };
 
   const handleSelectVolume = (vol) => {
@@ -264,7 +261,8 @@ export default function HarvestCardStack({
 
   const handleNext = () => {
     if (currentStep === 1 && !cropOverride) {
-      setCropOverride(CROPS[0].name);
+      const defaultCrop = cropsCatalogList[0] || { name: "Maize (Mahindi)" };
+      setCropOverride(defaultCrop.name);
     }
     if (currentStep === 2 && !volumeOverride) {
       setVolumeOverride("2700");
@@ -1090,15 +1088,30 @@ export default function HarvestCardStack({
                   onChange={(e) => setCustomCropInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && customCropInput.trim()) {
+                      if (isHarmfulOrProhibitedTerm(customCropInput)) {
+                        alert(lang === 'fr' 
+                          ? "🛑 ALERTE SÉCURITÉ: Terme non autorisé ou inapproprié (sexualité, racisme, poison ou substance illicite). KilimoAgent traite exclusivement des produits agricoles licites."
+                          : lang === 'sw'
+                          ? "🛑 ILANI YA USALAMA: Jina lililopigwa marufuku (ngono, ubaguzi, sumu n.k.). KilimoAgent inashughulikia mazao halali ya kilimo pekee."
+                          : "🛑 SECURITY ALERT: Prohibited or inappropriate term detected. KilimoAgent operates exclusively for legal agricultural commodities.");
+                        return;
+                      }
                       setCropOverride(customCropInput.trim());
                       setShowCustomCropDialog(false);
                       setCurrentStep(2);
                     }
                   }}
                   placeholder={lang === 'sw' ? "k.m. Mtama, Alizeti, Soya, Parachichi..." : lang === 'fr' ? "ex. Sorgho, Soja, Tournesol, Avocat..." : "e.g. Sorghum, Soya, Sunflower, Avocado..."}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm font-bold text-amber-300 focus:outline-none focus:border-amber-400"
+                  className={`w-full bg-slate-950 border rounded-xl px-3.5 py-2.5 text-sm font-bold focus:outline-none ${
+                    isHarmfulOrProhibitedTerm(customCropInput) ? 'border-rose-500 text-rose-300' : 'border-slate-800 text-amber-300 focus:border-amber-400'
+                  }`}
                   autoFocus
                 />
+                {isHarmfulOrProhibitedTerm(customCropInput) && (
+                  <p className="text-[11px] text-rose-400 font-bold mt-1.5 flex items-center gap-1">
+                    <span>🛑 {lang === 'fr' ? "Terme prohibé : produits agricoles licites uniquement" : lang === 'sw' ? "Zao lisiloruhusiwa : mazao halali pekee" : "Prohibited term: agricultural crops only"}</span>
+                  </p>
+                )}
               </div>
 
               {/* Quick Preset Pills */}
@@ -1138,12 +1151,18 @@ export default function HarvestCardStack({
                 type="button"
                 onClick={() => {
                   if (customCropInput.trim()) {
+                    if (isHarmfulOrProhibitedTerm(customCropInput)) {
+                      alert(lang === 'fr' 
+                        ? "🛑 ALERTE SÉCURITÉ: Terme non autorisé ou inapproprié."
+                        : "🛑 SECURITY ALERT: Prohibited term.");
+                      return;
+                    }
                     setCropOverride(customCropInput.trim());
                     setShowCustomCropDialog(false);
                     setCurrentStep(2);
                   }
                 }}
-                disabled={!customCropInput.trim()}
+                disabled={!customCropInput.trim() || isHarmfulOrProhibitedTerm(customCropInput)}
                 className="px-5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-30 disabled:cursor-not-allowed text-slate-950 text-xs font-black transition cursor-pointer"
               >
                 {lang === 'sw' ? "Thibitisha Zao" : lang === 'fr' ? "Confirmer la Culture" : "Confirm Crop"}

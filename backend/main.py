@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from agent import process_multimodal_harvest_request, process_conversational_intake
 from receptionist_agent import run_receptionist_triage
 from routers.whatsapp import router as whatsapp_router
+from state.firestore_manager import KilimoStateManager
 
 app = FastAPI(
     title="KilimoAgent Enterprise Orchestrator API",
@@ -299,9 +300,14 @@ async def trigger_harvest_dispatch(
             preferred_language=clean_lang
         )
 
+        import uuid
+        tx_id = f"tx_{uuid.uuid4().hex[:12]}"
+        effective_farmer = clean_farmer_id or f"KM-FARMER-{tx_id[3:9].upper()}"
+
         return {
             "success": True,
-            "farmer_id": clean_farmer_id or "AUTONOMOUSLY_ASSIGNED",
+            "transaction_id": tx_id,
+            "farmer_id": effective_farmer,
             "language": clean_lang,
             "executive_report": report
         }
@@ -317,3 +323,78 @@ async def trigger_harvest_dispatch(
         if audio_path and os.path.exists(audio_path):
             try: os.remove(audio_path)
             except Exception: pass
+
+
+class FarmerProfileRequest(BaseModel):
+    email: str
+    name: Optional[str] = None
+
+
+class LinkDispatchRequest(BaseModel):
+    email: str
+    transaction_id: str
+    farmer_id: Optional[str] = None
+    summary: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/v1/farmer/profile")
+def get_or_create_farmer_profile_endpoint(req: FarmerProfileRequest):
+    """
+    Retrieves or creates a farmer profile in Cloud Firestore identified by email,
+    returning the unique collision-safe Farmer ID and complete historical ledger.
+    """
+    try:
+        state_mgr = KilimoStateManager()
+        profile = state_mgr.get_or_create_farmer(email=req.email, name=req.name)
+        history = state_mgr.get_farmer_history(farmer_id=profile["farmer_id"], email=profile["email"])
+        return {
+            "status": "SUCCESS",
+            "farmer_id": profile["farmer_id"],
+            "email": profile["email"],
+            "name": profile["name"],
+            "is_new": profile.get("is_new", False),
+            "history": history
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/v1/farmer/history")
+def get_farmer_history_endpoint(email: Optional[str] = None, farmer_id: Optional[str] = None):
+    """
+    Returns the persistent dispatch waybill history from Cloud Firestore for the given farmer.
+    """
+    try:
+        state_mgr = KilimoStateManager()
+        history = state_mgr.get_farmer_history(farmer_id=farmer_id, email=email)
+        return {
+            "status": "SUCCESS",
+            "farmer_id": farmer_id,
+            "email": email,
+            "count": len(history),
+            "history": history
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/v1/farmer/link-dispatch")
+def link_dispatch_to_farmer_endpoint(req: LinkDispatchRequest):
+    """
+    Associates a newly completed agricultural dispatch report to a farmer's Firestore account.
+    """
+    try:
+        state_mgr = KilimoStateManager()
+        result = state_mgr.link_transaction_to_farmer(
+            email=req.email,
+            transaction_id=req.transaction_id,
+            farmer_id=req.farmer_id,
+            summary=req.summary
+        )
+        history = state_mgr.get_farmer_history(farmer_id=result["farmer_id"], email=result["farmer_email"])
+        return {
+            **result,
+            "history": history
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

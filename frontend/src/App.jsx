@@ -12,11 +12,9 @@ import {
   Cpu,
   X,
   Menu,
-  MapPin,
   Scale,
   MessageSquare,
-  Navigation,
-  Layers
+  Navigation
 } from 'lucide-react';
 
 import GeminiIcon from './components/GeminiIcon';
@@ -32,24 +30,48 @@ import LedgerView from './components/LedgerView';
 import ArchitectureModal from './components/ArchitectureModal';
 import WhatsAppSimulatorModal from './components/WhatsAppSimulatorModal';
 import GeminiLiveModal from './components/GeminiLiveModal';
+import FarmerHistoryModal from './components/FarmerHistoryModal';
 import ResponseShimmerSkeleton from './components/ResponseShimmerSkeleton';
+import ErrorBoundary from './components/ErrorBoundary';
 
-import { PRESET_SCENARIOS } from './utils/presets';
 import { translations } from './utils/translations';
 import { parseExecutionLedger } from './utils/parser';
 import { voiceAgent } from './utils/audioSynthesizer';
 
-const DEFAULT_API_BASE = "https://kilimo-backend-840262173056.us-central1.run.app";
+const getInitialBackendUrl = () => {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.')) {
+      return 'http://localhost:8000';
+    }
+  }
+  return import.meta.env.VITE_BACKEND_URL || "https://kilimo-backend-840262173056.us-central1.run.app";
+};
+
+const getInitialInputMode = () => {
+  if (typeof window !== 'undefined') {
+    const path = window.location.pathname.toLowerCase();
+    if (path.includes('/quick-prompt') || path.includes('/quick') || path.includes('/prompt')) {
+      return 'quick';
+    }
+    if (path.includes('/guided-card') || path.includes('/guided') || path.includes('/cards')) {
+      return 'guided';
+    }
+  }
+  return 'guided';
+};
 
 export default function App() {
   const [lang, setLang] = useState('en');
-  const [backendUrl, setBackendUrl] = useState(DEFAULT_API_BASE);
+  const [backendUrl, setBackendUrl] = useState(getInitialBackendUrl);
   const [showArchModal, setShowArchModal] = useState(false);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [showLiveModal, setShowLiveModal] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
-  const [inputMode, setInputMode] = useState('guided'); // 'guided' | 'quick'
+  const [inputMode, setInputMode] = useState(getInitialInputMode); // 'guided' | 'quick'
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [dispatchKey, setDispatchKey] = useState(0);
+  const [isChatActive, setIsChatActive] = useState(false);
 
   // Multimodal Inputs
   const [selectedPresetId, setSelectedPresetId] = useState(null);
@@ -74,18 +96,64 @@ export default function App() {
   const [parsedData, setParsedData] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // Farmer Identity & Cloud Firestore State
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [farmerAccount, setFarmerAccount] = useState(() => {
+    try {
+      const em = localStorage.getItem('kilimo_farmer_email');
+      const fid = localStorage.getItem('kilimo_farmer_id');
+      if (em) return { email: em, farmerId: fid || 'KM-FARMER-DEFAULT' };
+    } catch (e) {}
+    return null;
+  });
+  const [postDispatchEmail, setPostDispatchEmail] = useState('');
+  const [isLinkingPostDispatch, setIsLinkingPostDispatch] = useState(false);
+  const [linkDispatchSuccess, setLinkDispatchSuccess] = useState(false);
+
   const t = translations[lang] || translations.en;
 
-  // Synchronize modal paths (/engineering, /pipeline, /architecture, /whatsapp, /live)
+  const switchInputMode = (mode) => {
+    setInputMode(mode);
+    setHasExecuted(false);
+    setIsChatActive(false);
+    try {
+      const targetPath = mode === 'quick' ? '/quick-prompt' : '/guided-card';
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, '', targetPath);
+      }
+    } catch {
+      // Ignored for non-browser/restricted iframe contexts
+    }
+  };
+
+  // Synchronize modal and page paths (/engineering, /whatsapp, /live, /quick-prompt, /guided-card)
   useEffect(() => {
     const handleUrlRoute = () => {
       const path = window.location.pathname.toLowerCase();
+      if (path === '/' || path === '') {
+        try {
+          window.history.replaceState(null, '', '/guided-card');
+        } catch {
+          // Ignored
+        }
+        setInputMode('guided');
+        setHasExecuted(false);
+        return;
+      }
       if (path.includes('/engineering') || path.includes('/pipeline') || path.includes('/architecture')) {
         setShowArchModal(true);
       } else if (path.includes('/whatsapp')) {
         setShowWhatsAppModal(true);
       } else if (path.includes('/live')) {
         setShowLiveModal(true);
+      } else if (path.includes('/history') || path.includes('/ledger') || path.includes('/factures')) {
+        setShowHistoryModal(true);
+      } else if (path.includes('/quick-prompt') || path.includes('/quick') || path.includes('/prompt')) {
+        setInputMode('quick');
+        setHasExecuted(false);
+      } else if (path.includes('/guided-card') || path.includes('/guided') || path.includes('/cards')) {
+        setInputMode('guided');
+        setHasExecuted(false);
       }
     };
     handleUrlRoute();
@@ -97,48 +165,72 @@ export default function App() {
     setShowArchModal(true);
     try {
       window.history.pushState(null, '', '/engineering');
-    } catch (e) {}
+    } catch {
+      // Ignored
+    }
   };
 
   const closeArchModal = () => {
     setShowArchModal(false);
     try {
-      if (window.location.pathname.includes('/engineering') || window.location.pathname.includes('/pipeline') || window.location.pathname.includes('/architecture')) {
-        window.history.pushState(null, '', '/');
-      }
-    } catch (e) {}
+      const fallback = inputMode === 'quick' ? '/quick-prompt' : '/guided-card';
+      window.history.pushState(null, '', fallback);
+    } catch {}
+  };
+
+  const openHistoryModal = () => {
+    setShowHistoryModal(true);
+    try {
+      window.history.pushState(null, '', '/history');
+    } catch {}
+  };
+
+  const closeHistoryModal = () => {
+    setShowHistoryModal(false);
+    try {
+      const fallback = inputMode === 'quick' ? '/quick-prompt' : '/guided-card';
+      window.history.pushState(null, '', fallback);
+    } catch {}
   };
 
   const openWhatsAppModal = () => {
     setShowWhatsAppModal(true);
     try {
       window.history.pushState(null, '', '/whatsapp');
-    } catch (e) {}
+    } catch {
+      // Ignored
+    }
   };
 
   const closeWhatsAppModal = () => {
     setShowWhatsAppModal(false);
     try {
       if (window.location.pathname.includes('/whatsapp')) {
-        window.history.pushState(null, '', '/');
+        window.history.pushState(null, '', inputMode === 'quick' ? '/quick-prompt' : '/guided-card');
       }
-    } catch (e) {}
+    } catch {
+      // Ignored
+    }
   };
 
   const openLiveModal = () => {
     setShowLiveModal(true);
     try {
       window.history.pushState(null, '', '/live');
-    } catch (e) {}
+    } catch {
+      // Ignored
+    }
   };
 
   const closeLiveModal = () => {
     setShowLiveModal(false);
     try {
       if (window.location.pathname.includes('/live')) {
-        window.history.pushState(null, '', '/');
+        window.history.pushState(null, '', inputMode === 'quick' ? '/quick-prompt' : '/guided-card');
       }
-    } catch (e) {}
+    } catch {
+      // Ignored
+    }
   };
 
   const handleSelectPreset = async (preset) => {
@@ -245,7 +337,9 @@ export default function App() {
           const blob = await imgRes.blob();
           formData.append('image', blob, 'harvest_specimen.jpg');
         }
-      } catch (e) {}
+      } catch {
+        // Ignored for unreachable local asset
+      }
     }
 
     if (audioFile) {
@@ -257,7 +351,9 @@ export default function App() {
           const blob = await audRes.blob();
           formData.append('audio', blob, 'farmer_voice_note.mp4');
         }
-      } catch (e) {}
+      } catch {
+        // Ignored for unreachable local asset
+      }
     }
 
     try {
@@ -285,11 +381,43 @@ export default function App() {
       const reportPayload = data.executive_report || data;
       setRawReport(typeof reportPayload === 'string' ? reportPayload : JSON.stringify(reportPayload, null, 2));
       const parsed = parseExecutionLedger(reportPayload, {
-        farmerId: data.farmer_id || farmerId,
+        farmerId: data.farmer_id || farmerId || farmerAccount?.farmerId,
         language: data.language || lang
       });
       setParsedData(parsed);
       setActiveStep(7);
+
+      // Cleanly reset input attachments and text notes so fields are fresh
+      setNotes("");
+      setImageFile(null);
+      setImagePreview(null);
+      setAudioFile(null);
+      setAudioPresetUrl(null);
+      setAudioName(null);
+
+      // Auto-persist to Firestore if farmer has a linked account
+      if (farmerAccount?.email) {
+        try {
+          fetch(`${backendUrl}/api/v1/farmer/link-dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: farmerAccount.email,
+              farmer_id: farmerAccount.farmerId,
+              transaction_id: parsed.txId || `tx_${Date.now()}`,
+              summary: {
+                commodity: parsed.audio?.commodity || effectiveCrop,
+                volume_kg: parsed.audio?.weight || effectiveVolume,
+                net_payout: parsed.arbitrage?.netPayoutFormatted || "$615.00 USD",
+                destination: parsed.freight?.destination || parsed.arbitrage?.optimalHub,
+                origin: parsed.audio?.origin || effectiveLocation,
+                transit_eta: parsed.freight?.transitEta || "6.0 Hours",
+                waybill_id: parsed.freight?.waybillId || "KILIMO-WB-DEFAULT"
+              }
+            })
+          }).catch((e) => console.warn("Auto-link dispatch notice:", e));
+        } catch (e) {}
+      }
     } catch (err) {
       console.error("[Live Dispatch Pipeline Error]:", err);
       setError(err.message || "Failed to execute backend dispatch request.");
@@ -298,6 +426,100 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLinkCurrentDispatch = async (e) => {
+    if (e) e.preventDefault();
+    const cleanEmail = postDispatchEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@') || !parsedData) return;
+
+    setIsLinkingPostDispatch(true);
+    try {
+      // 1. Create or retrieve profile
+      const profRes = await fetch(`${backendUrl}/api/v1/farmer/profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail })
+      });
+      let fid = `KM-FARMER-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      if (profRes.ok) {
+        const profData = await profRes.json();
+        fid = profData.farmer_id || fid;
+      }
+
+      const newAccount = { email: cleanEmail, farmerId: fid };
+      setFarmerAccount(newAccount);
+      localStorage.setItem('kilimo_farmer_email', cleanEmail);
+      localStorage.setItem('kilimo_farmer_id', fid);
+
+      // 2. Link this transaction
+      await fetch(`${backendUrl}/api/v1/farmer/link-dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          farmer_id: fid,
+          transaction_id: parsedData.txId || `tx_${Date.now()}`,
+          summary: {
+            commodity: parsedData.audio?.commodity || cropOverride || "Maize",
+            volume_kg: parsedData.audio?.weight || parseFloat(volumeOverride) || 1500,
+            net_payout: parsedData.arbitrage?.netPayoutFormatted || "$615.00 USD",
+            destination: parsedData.freight?.destination || parsedData.arbitrage?.optimalHub || "Border Trade Zone",
+            origin: parsedData.audio?.origin || locationOverride || "Bunia Depot",
+            transit_eta: parsedData.freight?.transitEta || "6.0 Hours",
+            waybill_id: parsedData.freight?.waybillId || "KILIMO-WB-DEFAULT"
+          }
+        })
+      });
+
+      setLinkDispatchSuccess(true);
+      setPostDispatchEmail('');
+      setTimeout(() => setLinkDispatchSuccess(false), 5000);
+    } catch (err) {
+      console.warn("Failed to link dispatch:", err);
+    } finally {
+      setIsLinkingPostDispatch(false);
+    }
+  };
+
+  const handleLoadHistoryDispatch = (item) => {
+    if (!item) return;
+    const s = item.summary || {};
+    const fakeParsed = {
+      txId: item.transaction_id || `tx_${Date.now()}`,
+      audio: {
+        commodity: s.commodity || "Maize (Grade A)",
+        origin: s.origin || "Bunia Depot",
+        weight: s.volume_kg || 1500,
+        weightFormatted: `${(s.volume_kg || 1500).toLocaleString()}.0 KG`
+      },
+      visual: {
+        specimen: s.commodity || "Maize (Grade A)",
+        grade: "Grade A Export Standard",
+        moistureScore: 12.4
+      },
+      arbitrage: {
+        optimalHub: s.destination || "Border Trade Zone Wholesale Terminal",
+        netFarmerPayout: parseFloat(String(s.net_payout || "").replace(/[^0-9.]/g, "")) || 615,
+        netPayoutFormatted: s.net_payout || "$615.00 USD",
+        arbitrageAdvantage: "+$180.00 USD",
+        arbitrageAdvantagePct: "+20.5%",
+        hubs: [
+          { name: s.destination || "Border Trade Zone", price: 0.45, gross: (s.volume_kg || 1500) * 0.45, freight: 60, net: (s.volume_kg || 1500) * 0.45 - 60, selected: true }
+        ]
+      },
+      freight: {
+        destination: s.destination || "Border Trade Zone Wholesale Terminal",
+        transitEta: s.transit_eta || "6.0 Hours",
+        carrier: "East-West AgroLogistics Fleet",
+        waybillId: s.waybill_id || `KILIMO-WB-${(item.transaction_id || '').slice(-8).toUpperCase()}`,
+        freightCost: 60,
+        freightCostFormatted: "$60.00 USD"
+      }
+    };
+    setParsedData(fakeParsed);
+    setHasExecuted(true);
+    setActiveTab('arbitrage');
   };
 
   // Quick Follow-Up Actions
@@ -422,9 +644,14 @@ export default function App() {
     setLocationOverride("");
     setError(null);
     setHasExecuted(false);
+    setLoading(false);
+    setParsedData(null);
+    setRawReport(null);
     setActiveStep(0);
+    setActiveTab('arbitrage');
     voiceAgent.stop();
     setIsSpeaking(false);
+    setDispatchKey(prev => prev + 1);
   };
 
   return (
@@ -438,6 +665,10 @@ export default function App() {
         onSelectPreset={handleSelectPreset}
         onNewDispatch={resetToNewDispatch}
         onOpenArch={openArchModal}
+        onOpenHistory={openHistoryModal}
+        farmerAccount={farmerAccount}
+        inputMode={inputMode}
+        onSelectInputMode={switchInputMode}
         lang={lang}
         setLang={setLang}
       />
@@ -456,53 +687,63 @@ export default function App() {
         isSidebarExpanded ? 'md:pl-72' : 'md:pl-16'
       } pl-0 overflow-hidden`}>
         
-        {/* State 1: Before Execution (Centered Landing Layout with naturally attached Footer) */}
+        {/* State 1: Before Execution */}
         {!hasExecuted && (
-          <div className="flex-1 flex flex-col justify-between overflow-y-auto custom-scrollbar min-h-0">
-            <main className="flex-1 max-w-5xl w-full mx-auto px-3 sm:px-6 lg:px-8 flex flex-col justify-center py-4 sm:py-8 space-y-4 sm:space-y-6">
-              {/* Initial View: What harvest can KilimoAgent dispatch today? */}
-              <div className="text-center max-w-2xl mx-auto space-y-1.5 pt-8 sm:pt-0 shrink-0">
-                <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-white leading-snug">
-                  {lang === 'fr' 
-                    ? "Que souhaitez-vous expédier aujourd'hui ?"
-                    : lang === 'sw'
-                    ? "Ungependa kusafirisha mazao gani leo?"
-                    : "What harvest can KilimoAgent dispatch today?"}
-                </h1>
-              </div>
+          <div className={`flex-1 h-full max-h-full flex flex-col ${
+            inputMode === 'quick' && isChatActive ? 'min-h-0 overflow-hidden' : 'justify-between overflow-y-auto custom-scrollbar min-h-0'
+          }`}>
+            <main className={`flex-1 w-full mx-auto px-3 sm:px-6 flex flex-col ${
+              inputMode === 'quick' && isChatActive
+                ? 'max-w-4xl justify-end min-h-0 overflow-hidden py-2 pb-2 h-full'
+                : 'max-w-5xl justify-center items-center my-auto py-8 sm:py-12 space-y-6'
+            }`}>
+              {/* Header Title & Mode Toggle (Only visible when NOT in active quick chat) */}
+              {!(inputMode === 'quick' && isChatActive) && (
+                <>
+                  <div className="text-center max-w-2xl mx-auto space-y-1.5 shrink-0">
+                    <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white leading-snug">
+                      {lang === 'fr' 
+                        ? "Que souhaitez-vous expédier aujourd'hui ?"
+                        : lang === 'sw'
+                        ? "Ungependa kusafirisha mazao gani leo?"
+                        : "What harvest can KilimoAgent dispatch today?"}
+                    </h1>
+                  </div>
 
-              {/* Mode Toggle: Quick Prompt vs Guided Card Stack */}
-              <div className="flex items-center justify-center space-x-2 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 w-fit mx-auto shadow-2xl backdrop-blur-md">
-                <button
-                  type="button"
-                  onClick={() => setInputMode('guided')}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                    inputMode === 'guided'
-                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                  }`}
-                >
-                  <GeminiIcon className="w-3.5 h-3.5" />
-                  <span>{t.guidedCardStack || "Guided Card Stack"}</span>
-                </button>
+                  {/* Mode Toggle: Quick Prompt vs Guided Card Stack */}
+                  <div className="flex items-center justify-center space-x-2 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 w-fit mx-auto shadow-2xl backdrop-blur-md">
+                    <button
+                      type="button"
+                      onClick={() => switchInputMode('guided')}
+                      className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        inputMode === 'guided'
+                          ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      <GeminiIcon className="w-3.5 h-3.5" />
+                      <span>{t.guidedCardStack || "Guided Card Stack"}</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => setInputMode('quick')}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                    inputMode === 'quick'
-                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                  }`}
-                >
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>{t.quickPrompt || "Quick Prompt"}</span>
-                </button>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => switchInputMode('quick')}
+                      className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        inputMode === 'quick'
+                          ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>{t.quickPrompt || "Quick Prompt"}</span>
+                    </button>
+                  </div>
+                </>
+              )}
 
-              {/* Error Notice with Close (X) Button */}
+              {/* Error Notice */}
               {error && (
-                <div className="max-w-3xl mx-auto p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between shadow-xl animate-in fade-in duration-200">
+                <div className="max-w-3xl w-full mx-auto p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between shadow-xl animate-in fade-in duration-200">
                   <div className="flex items-center space-x-2.5">
                     <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
                     <span className="font-semibold">{error}</span>
@@ -517,77 +758,89 @@ export default function App() {
                 </div>
               )}
 
-              {/* Mode 1: Guided 5-Step Card Stack */}
-              {inputMode === 'guided' ? (
-                <HarvestCardStack
-                  cropOverride={cropOverride}
-                  setCropOverride={setCropOverride}
-                  volumeOverride={volumeOverride}
-                  setVolumeOverride={setVolumeOverride}
-                  locationOverride={locationOverride}
-                  setLocationOverride={setLocationOverride}
-                  farmerId={farmerId}
-                  setFarmerId={setFarmerId}
-                  notes={notes}
-                  setNotes={setNotes}
-                  imagePreview={imagePreview}
-                  setImagePreview={setImagePreview}
-                  setImageFile={setImageFile}
-                  audioName={audioName}
-                  setAudioName={setAudioName}
-                  audioFile={audioFile}
-                  setAudioFile={setAudioFile}
-                  audioPresetUrl={audioPresetUrl}
-                  setAudioPresetUrl={setAudioPresetUrl}
-                  loading={loading}
-                  onSubmit={handleSubmit}
-                  lang={lang}
-                  backendUrl={backendUrl}
-                />
-              ) : (
-                /* Mode 2: Quick Multimodal Input Capsule */
-                <MultimodalInputCapsule
-                  notes={notes}
-                  setNotes={handleNotesChange}
-                  imagePreview={imagePreview}
-                  setImagePreview={setImagePreview}
-                  setImageFile={setImageFile}
-                  audioName={audioName}
-                  setAudioName={setAudioName}
-                  audioFile={audioFile}
-                  setAudioFile={setAudioFile}
-                  audioPresetUrl={audioPresetUrl}
-                  setAudioPresetUrl={setAudioPresetUrl}
-                  loading={loading}
-                  onSubmit={handleSubmit}
-                  onOpenLive={() => setShowLiveModal(true)}
-                  lang={lang}
-                  showAdvanced={showAdvanced}
-                  setShowAdvanced={setShowAdvanced}
-                  farmerId={farmerId}
-                  setFarmerId={setFarmerId}
-                  cropOverride={cropOverride}
-                  setCropOverride={setCropOverride}
-                  volumeOverride={volumeOverride}
-                  setVolumeOverride={setVolumeOverride}
-                  locationOverride={locationOverride}
-                  setLocationOverride={setLocationOverride}
-                  hasExecuted={false}
-                  backendUrl={backendUrl}
-                  setLang={setLang}
-                />
-              )}
+              {/* Mode Component (Single stable instance) */}
+              <div className={`w-full ${inputMode === 'quick' && isChatActive ? 'flex-1 min-h-0 flex flex-col justify-end' : 'max-w-3xl mx-auto'}`}>
+                {inputMode === 'guided' ? (
+                  <ErrorBoundary onReset={() => switchInputMode('guided')}>
+                    <HarvestCardStack
+                      key={`guided-${dispatchKey}`}
+                      cropOverride={cropOverride}
+                      setCropOverride={setCropOverride}
+                      volumeOverride={volumeOverride}
+                      setVolumeOverride={setVolumeOverride}
+                      locationOverride={locationOverride}
+                      setLocationOverride={setLocationOverride}
+                      farmerId={farmerId}
+                      setFarmerId={setFarmerId}
+                      notes={notes}
+                      setNotes={setNotes}
+                      imagePreview={imagePreview}
+                      setImagePreview={setImagePreview}
+                      setImageFile={setImageFile}
+                      audioName={audioName}
+                      setAudioName={setAudioName}
+                      audioFile={audioFile}
+                      setAudioFile={setAudioFile}
+                      audioPresetUrl={audioPresetUrl}
+                      setAudioPresetUrl={setAudioPresetUrl}
+                      loading={loading}
+                      onSubmit={handleSubmit}
+                      lang={lang}
+                      backendUrl={backendUrl}
+                    />
+                  </ErrorBoundary>
+                ) : (
+                  <ErrorBoundary onReset={() => switchInputMode('quick')}>
+                    <MultimodalInputCapsule
+                      key={`quick-${dispatchKey}`}
+                      notes={notes}
+                      setNotes={handleNotesChange}
+                      imagePreview={imagePreview}
+                      setImagePreview={setImagePreview}
+                      imageFile={imageFile}
+                      setImageFile={setImageFile}
+                      audioName={audioName}
+                      setAudioName={setAudioName}
+                      audioFile={audioFile}
+                      setAudioFile={setAudioFile}
+                      audioPresetUrl={audioPresetUrl}
+                      setAudioPresetUrl={setAudioPresetUrl}
+                      loading={loading}
+                      onSubmit={handleSubmit}
+                      onOpenLive={() => setShowLiveModal(true)}
+                      lang={lang}
+                      showAdvanced={showAdvanced}
+                      setShowAdvanced={setShowAdvanced}
+                      farmerId={farmerId}
+                      setFarmerId={setFarmerId}
+                      cropOverride={cropOverride}
+                      setCropOverride={setCropOverride}
+                      volumeOverride={volumeOverride}
+                      setVolumeOverride={setVolumeOverride}
+                      locationOverride={locationOverride}
+                      setLocationOverride={setLocationOverride}
+                      hasExecuted={false}
+                      backendUrl={backendUrl}
+                      setLang={setLang}
+                      isChatActive={isChatActive}
+                      setIsChatActive={setIsChatActive}
+                    />
+                  </ErrorBoundary>
+                )}
+              </div>
             </main>
 
-            {/* Minimal Footer always inside landing view */}
-            <footer className="border-t border-slate-800/80 bg-[#090D16] py-3 px-4 text-center text-xs text-slate-500 space-y-0.5 shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
-              <p className="font-semibold text-slate-400 text-[11px] sm:text-xs truncate sm:whitespace-normal">
-                KilimoAgent • Multimodal Agricultural Arbitrage & Carrier Dispatch Engine
-              </p>
-              <p className="text-[10px] sm:text-[11px] text-slate-600 font-medium truncate sm:whitespace-normal">
-                Powered by Gemini 3.6 Flash • Gemma 2 (9B-IT) • Google Cloud Run • Google Cloud Firestore
-              </p>
-            </footer>
+            {/* Minimal Footer VISIBLE ONLY on landing / empty view */}
+            {!(inputMode === 'quick' && isChatActive) && (
+              <footer className="border-t border-slate-800/80 bg-[#090D16] py-3 px-4 text-center text-xs text-slate-500 space-y-0.5 shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+                <p className="font-semibold text-slate-400 text-[11px] sm:text-xs truncate sm:whitespace-normal">
+                  KilimoAgent • Multimodal Agricultural Arbitrage & Carrier Dispatch Engine
+                </p>
+                <p className="text-[10px] sm:text-[11px] text-slate-600 font-medium truncate sm:whitespace-normal">
+                  Powered by Gemini 3.6 Flash • Gemma 2 (9B-IT) • Google Cloud Run • Google Cloud Firestore
+                </p>
+              </footer>
+            )}
           </div>
         )}
 
@@ -762,79 +1015,124 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Dashboard Tab Navigation (Centered) */}
-                  <div className="flex items-center justify-center space-x-2 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 overflow-x-auto mx-auto w-fit max-w-full">
-                    <button
-                      onClick={() => setActiveTab('arbitrage')}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                        activeTab === 'arbitrage'
-                          ? 'bg-emerald-500 text-slate-950 shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      <TrendingUp className="w-4 h-4" />
-                      <span>{t.tabArbitrage}</span>
-                    </button>
+                  {/* Firestore History Integration Notice / Banner */}
+                  {!farmerAccount?.email && (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900/90 to-cyan-950/40 border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+                      <div className="flex items-center space-x-3 text-left min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                          <History className="w-4 h-4 text-emerald-400" />
+                        </div>
+                        <div className="text-xs min-w-0">
+                          <span className="font-bold text-white">
+                            {lang === 'fr' ? "Conserver ce bordereau dans votre historique ?" : lang === 'sw' ? "Je, ungependa kuhifadhi stakabadhi hii?" : "Save this dispatch to your history?"}
+                          </span>
+                          <p className="text-[11px] text-slate-400 truncate">
+                            {lang === 'fr' ? "Associez votre email pour retrouver toutes vos factures sur Cloud Firestore." : lang === 'sw' ? "Unganisha barua pepe yako ili kufikia rekodi zako zote." : "Link your email to access past receipts anytime."}
+                          </p>
+                        </div>
+                      </div>
 
-                    <button
-                      onClick={() => setActiveTab('geospatial')}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                        activeTab === 'geospatial'
-                          ? 'bg-emerald-500 text-slate-950 shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      <Navigation className="w-4 h-4" />
-                      <span>{t.tabGeospatial || "Geospatial Map & Radar"}</span>
-                    </button>
+                      <form onSubmit={handleLinkCurrentDispatch} className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                        <input
+                          type="email"
+                          value={postDispatchEmail}
+                          onChange={(e) => setPostDispatchEmail(e.target.value)}
+                          placeholder={lang === 'fr' ? "votre.email@gmail.com" : "your.email@example.com"}
+                          className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-emerald-500 flex-1 sm:w-56"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isLinkingPostDispatch}
+                          className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition cursor-pointer disabled:opacity-50 shrink-0"
+                        >
+                          {isLinkingPostDispatch ? "..." : (lang === 'fr' ? "Sauvegarder" : lang === 'sw' ? "Hifadhi" : "Save")}
+                        </button>
+                      </form>
+                    </div>
+                  )}
 
-                    <button
-                      onClick={() => setActiveTab('multimodal')}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                        activeTab === 'multimodal'
-                          ? 'bg-emerald-500 text-slate-950 shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      <Eye className="w-4 h-4" />
-                      <span>{t.tabMultimodal}</span>
-                    </button>
+                  {linkDispatchSuccess && (
+                    <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>{lang === 'fr' ? "Bordereau enregistré avec succès dans votre historique Firestore !" : lang === 'sw' ? "Stakabadhi imehifadhiwa kwenye Cloud Firestore!" : "Dispatch successfully archived to your Cloud Firestore ledger!"}</span>
+                    </div>
+                  )}
 
-                    <button
-                      onClick={() => setActiveTab('waybill')}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                        activeTab === 'waybill'
-                          ? 'bg-emerald-500 text-slate-950 shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      <Truck className="w-4 h-4" />
-                      <span>{t.tabWaybill}</span>
-                    </button>
+                  {/* Dashboard Tab Navigation */}
+                  <div className="w-full max-w-5xl mx-auto overflow-x-auto custom-scrollbar px-1 py-1">
+                    <div className="flex items-center justify-start xl:justify-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 w-fit min-w-max mx-auto px-2">
+                      <button
+                        onClick={() => setActiveTab('arbitrage')}
+                        className={`shrink-0 flex items-center space-x-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                          activeTab === 'arbitrage'
+                            ? 'bg-emerald-500 text-slate-950 shadow-md'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <TrendingUp className="w-4 h-4" />
+                        <span>{t.tabArbitrage}</span>
+                      </button>
 
-                    <button
-                      onClick={() => setActiveTab('architecture')}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                        activeTab === 'architecture'
-                          ? 'bg-emerald-500 text-slate-950 shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      <Cpu className="w-4 h-4" />
-                      <span>{t.tabArchitecture}</span>
-                    </button>
+                      <button
+                        onClick={() => setActiveTab('geospatial')}
+                        className={`shrink-0 flex items-center space-x-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                          activeTab === 'geospatial'
+                            ? 'bg-emerald-500 text-slate-950 shadow-md'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <Navigation className="w-4 h-4" />
+                        <span>{t.tabGeospatial || "Geospatial Map & Radar"}</span>
+                      </button>
 
-                    <button
-                      onClick={() => setActiveTab('ledger')}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                        activeTab === 'ledger'
-                          ? 'bg-emerald-500 text-slate-950 shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      <FileText className="w-4 h-4" />
-                      <span>{t.tabLedger}</span>
-                    </button>
+                      <button
+                        onClick={() => setActiveTab('multimodal')}
+                        className={`shrink-0 flex items-center space-x-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                          activeTab === 'multimodal'
+                            ? 'bg-emerald-500 text-slate-950 shadow-md'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <Eye className="w-4 h-4" />
+                        <span>{t.tabMultimodal}</span>
+                      </button>
+
+                      <button
+                        onClick={() => setActiveTab('waybill')}
+                        className={`shrink-0 flex items-center space-x-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                          activeTab === 'waybill'
+                            ? 'bg-emerald-500 text-slate-950 shadow-md'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <Truck className="w-4 h-4" />
+                        <span>{t.tabWaybill}</span>
+                      </button>
+
+                      <button
+                        onClick={() => setActiveTab('architecture')}
+                        className={`shrink-0 flex items-center space-x-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                          activeTab === 'architecture'
+                            ? 'bg-emerald-500 text-slate-950 shadow-md'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <Cpu className="w-4 h-4" />
+                        <span>{t.tabArchitecture}</span>
+                      </button>
+
+                      <button
+                        onClick={() => setActiveTab('ledger')}
+                        className={`shrink-0 flex items-center space-x-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                          activeTab === 'ledger'
+                            ? 'bg-emerald-500 text-slate-950 shadow-md'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <FileText className="w-4 h-4" />
+                        <span>{t.tabLedger}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Tab Views */}
@@ -857,6 +1155,7 @@ export default function App() {
                       waybillId={parsedData.freight?.waybillId || "KILIMO-WB-63F15ADA"}
                       arbitrageData={parsedData.arbitrage}
                       onSelectRouteOverride={handleLockNakuruRoute}
+                      lang={lang}
                     />
                   )}
 
@@ -869,15 +1168,13 @@ export default function App() {
                   )}
 
                   {activeTab === 'waybill' && (
-                    <div id="printable-waybill">
-                      <WaybillCard
-                        freightData={parsedData.freight}
-                        farmerId={parsedData.txId}
-                        commodity={parsedData.audio.commodity}
-                        volumeFormatted={parsedData.audio.weightFormatted}
-                        lang={lang}
-                      />
-                    </div>
+                    <WaybillCard
+                      freightData={parsedData.freight}
+                      farmerId={parsedData.txId}
+                      commodity={parsedData.audio.commodity}
+                      volumeFormatted={parsedData.audio.weightFormatted}
+                      lang={lang}
+                    />
                   )}
 
                   {activeTab === 'architecture' && (
@@ -903,6 +1200,7 @@ export default function App() {
             <div className="shrink-0 w-full bg-[#090D16]/95 backdrop-blur-md border-t border-slate-800/80 px-4 sm:px-6 lg:px-8 py-3 z-30 shadow-2xl">
               <div className="max-w-4xl mx-auto w-full">
                 <MultimodalInputCapsule
+                  key={`pinned-quick-${dispatchKey}`}
                   notes={notes}
                   setNotes={handleNotesChange}
                   imagePreview={imagePreview}
@@ -938,15 +1236,38 @@ export default function App() {
         )}
       </div>
 
-      {/* WhatsApp Floating Action Button (FAB) in Bottom Right (Material Design 3 Standards with Safe-Area & Toolbar offset) */}
-      <div className={`fixed z-40 transition-all duration-300 ${
+      {/* Floating Action Buttons (FAB Stack) in Bottom Right: Gemini Live (Top, circular with red dot) + WhatsApp (Bottom) */}
+      <div className={`fixed z-40 flex flex-col items-center gap-2.5 sm:gap-3 transition-all duration-300 ${
         hasExecuted
           ? 'bottom-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:bottom-20 right-4 sm:right-6'
           : 'bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-6 right-4 sm:right-6'
       }`}>
+        {/* Gemini Live Circular Floating Button (Red border, pulsating indicator) */}
         <button
+          type="button"
+          onClick={openLiveModal}
+          className="relative group w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-rose-950/80 hover:bg-rose-900/90 border-2 border-rose-500 hover:border-rose-400 text-rose-300 flex items-center justify-center transition-all duration-150 cursor-pointer shadow-xl shadow-rose-500/30 ring-2 ring-rose-500/20 backdrop-blur-md hover:scale-105 active:scale-95"
+          title="Open Gemini Live Multimodal Stream"
+        >
+          <GeminiIcon className="w-5 h-5 sm:w-6 sm:h-6 text-rose-400 group-hover:scale-110 transition-transform" />
+          
+          {/* Live pulsing red dot indicator on top */}
+          <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 border-2 border-[#090D16]"></span>
+          </span>
+
+          {/* Tooltip on hover */}
+          <span className="absolute right-14 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
+            Gemini Live Multimodal
+          </span>
+        </button>
+
+        {/* WhatsApp Floating Action Button */}
+        <button
+          type="button"
           onClick={openWhatsAppModal}
-          className="relative group w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center transition-all duration-150 cursor-pointer"
+          className="relative group w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center transition-all duration-150 cursor-pointer shadow-lg shadow-emerald-500/25 hover:scale-105 active:scale-95"
           title="Open WhatsApp Field Gateway Simulator"
         >
           <img
@@ -955,7 +1276,7 @@ export default function App() {
             className="w-6 h-6 sm:w-7 sm:h-7 object-contain"
           />
           {/* Tooltip on hover */}
-          <span className="absolute right-16 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none hidden sm:inline">
+          <span className="absolute right-16 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
             WhatsApp Field Gateway
           </span>
           {/* Live indicator badge */}
@@ -978,6 +1299,7 @@ export default function App() {
         onClose={closeWhatsAppModal}
         backendUrl={backendUrl}
         lang={lang}
+        setLang={setLang}
       />
 
       {/* Gemini Live Multimodal Modal (Voice & Video) */}
@@ -985,6 +1307,7 @@ export default function App() {
         isOpen={showLiveModal}
         onClose={closeLiveModal}
         lang={lang}
+        setLang={setLang}
         backendUrl={backendUrl}
         onCommitDispatch={(liveParams) => {
           if (liveParams) {
@@ -1000,6 +1323,18 @@ export default function App() {
             }
           }
         }}
+      />
+
+      {/* Farmer History & Cloud Firestore Ledger Modal */}
+      <FarmerHistoryModal
+        isOpen={showHistoryModal}
+        onClose={closeHistoryModal}
+        backendUrl={backendUrl}
+        farmerAccount={farmerAccount}
+        setFarmerAccount={setFarmerAccount}
+        onLoadDispatch={handleLoadHistoryDispatch}
+        onExportWaybill={handleExportWaybillPdf}
+        lang={lang}
       />
     </div>
   );

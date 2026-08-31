@@ -214,8 +214,10 @@ export default function GeospatialRouteMap({
   transitEta = "6.0 Hours",
   carrier = "East-West AgroLogistics Fleet",
   waybillId = "KILIMO-WB-63F15ADA",
-  onSelectRouteOverride = null
+  onSelectRouteOverride = null,
+  lang = "en"
 }) {
+  const t = translations[lang] || translations.en || {};
   const [showRadarGrid, setShowRadarGrid] = useState(true);
   const [showOpportunities, setShowOpportunities] = useState(true);
 
@@ -334,11 +336,11 @@ export default function GeospatialRouteMap({
           className="w-full h-full"
           style={{ background: '#090D16' }}
         >
-          {/* CartoDB Dark Matter Tiles */}
+          {/* Dark Vector Map Tiles */}
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            maxZoom={18}
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+            attribution='&copy; <a href="https://www.esri.com/">Esri</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            maxZoom={16}
           />
 
           <MapController bounds={mapBounds} />

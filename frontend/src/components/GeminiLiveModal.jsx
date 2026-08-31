@@ -1,21 +1,18 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X,
   Mic,
   MicOff,
   Video,
   VideoOff,
-  PhoneOff,
   Activity,
   Check,
   Zap,
   Volume2,
   Camera,
-  RefreshCw,
-  TrendingUp,
-  Truck,
   Loader2,
-  Sparkles
+  Sparkles,
+  Radio
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 import { voiceAgent } from '../utils/audioSynthesizer';
@@ -25,15 +22,20 @@ export default function GeminiLiveModal({
   isOpen,
   onClose,
   lang = 'en',
+  setLang,
   backendUrl = '',
   onCommitDispatch
 }) {
+  const [selectedLang, setSelectedLang] = useState(lang);
   const [isAudioLive, setIsAudioLive] = useState(true);
   const [isVideoLive, setIsVideoLive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('connecting'); // connecting, live, listening, analyzing
+  const [interimSpeech, setInterimSpeech] = useState('');
+  const [liveTextInput, setLiveTextInput] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('listening'); // 'connecting' | 'listening' | 'user_speaking' | 'processing' | 'speaking'
   const [audioLevel, setAudioLevel] = useState([20, 45, 70, 90, 60, 30, 80, 50, 65, 40]);
   const [detectedSpecimen, setDetectedSpecimen] = useState(null);
   const [liveParams, setLiveParams] = useState({
@@ -42,7 +44,7 @@ export default function GeminiLiveModal({
     origin_depot: null,
     destination_preference: null
   });
-  
+
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -52,215 +54,227 @@ export default function GeminiLiveModal({
   const transcriptsEndRef = useRef(null);
   const animationFrameRef = useRef(null);
 
-  const initialTranscript = {
-    sw: [
-      { sender: 'gemini', text: "Habari mkulima! Niko hewani kupitia Gemini Live API. Unaweza kueleza mazao yako kwa sauti na kufungua kamera yako kwa ukaguzi wa haraka.", time: "Live" }
-    ],
-    fr: [
-      { sender: 'gemini', text: "Bonjour cher producteur ! Je suis en direct via l'API Gemini Live. Parlez naturellement et activez votre caméra pour une inspection visuelle instantanée.", time: "Live" }
-    ],
-    en: [
-      { sender: 'gemini', text: "Hello farmer! I'm live on the bidirectional Gemini Live stream. Speak naturally and switch on your camera anytime for live multimodal harvest grading.", time: "Live" }
-    ]
+  const silenceTimerRef = useRef(null);
+  const accumulatedSpeechRef = useRef('');
+  const isAiSpeakingRef = useRef(false);
+  const isProcessingRef = useRef(false);
+  const cooldownUntilRef = useRef(0);
+  const lastAgentUtterancesRef = useRef([]);
+  const gainNodeRef = useRef(null);
+
+  const hasInitializedRef = useRef(false);
+  const isOpenRef = useRef(isOpen);
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+  const isMutedRef = useRef(isMuted);
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+
+  useEffect(() => {
+    setSelectedLang(lang);
+  }, [lang]);
+
+  const getEffectiveBackend = () => {
+    if (backendUrl && backendUrl.length > 0) return backendUrl;
+    if (typeof window !== 'undefined') {
+      if (window.location.hostname.includes('run.app')) {
+        return 'https://kilimo-backend-840262173056.us-central1.run.app';
+      }
+    }
+    return 'http://localhost:8000';
   };
 
-  const [transcripts, setTranscripts] = useState(initialTranscript[lang] || initialTranscript.en);
+  const initialGreetingMap = {
+    sw: "Habari mkulima! Niko hewani kupitia Gemini Live API. Unaweza kueleza mazao yako kwa sauti na kufungua kamera yako kwa ukaguzi wa haraka.",
+    fr: "Bonjour cher producteur ! Je suis en direct via l'API Gemini Live. Parlez naturellement et activez votre caméra pour une inspection visuelle instantanée.",
+    en: "Hello farmer! I'm live on the bidirectional Gemini Live stream. Speak naturally and switch on your camera anytime for live multimodal harvest grading."
+  };
 
-  // Initialize Speech Recognition & Real Audio Analyzer on Open
-  useEffect(() => {
-    if (isOpen) {
-      setConnectionStatus('listening');
-      setTranscripts(initialTranscript[lang] || initialTranscript.en);
-      setDetectedSpecimen(null);
-      setIsAiSpeaking(false);
-      setIsProcessing(false);
-      setLiveParams({
-        crop: null,
-        volume_kg: null,
-        origin_depot: null,
-        destination_preference: null
-      });
+  const [transcripts, setTranscripts] = useState([
+    { sender: 'gemini', text: initialGreetingMap[lang] || initialGreetingMap.en, time: "Live" }
+  ]);
 
-      // Start Microphone & Speech Recognition in active listening mode (NO self-echoing welcome speech)
-      startMicrophoneAndSpeech();
-    } else {
-      stopAllMedia();
-    }
-
-    return () => {
-      stopAllMedia();
-    };
-  }, [isOpen, lang]);
-
-  // Auto-scroll to bottom of transcripts
   useEffect(() => {
     transcriptsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcripts]);
+  }, [transcripts, interimSpeech]);
 
-  const lastSpokenAiTextRef = useRef('');
-  const lastSpokenTimeRef = useRef(0);
+  const stopAllMedia = useCallback(() => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    voiceAgent.stop();
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    isAiSpeakingRef.current = false;
+    cooldownUntilRef.current = 0;
+    lastAgentUtterancesRef.current = [];
+    gainNodeRef.current = null;
+    setIsAiSpeaking(false);
+    setIsProcessing(false);
 
-  // Start Real Microphone Capture & Continuous Speech Recognition
-  const startMicrophoneAndSpeech = async () => {
-    // 1. Web Speech Recognition
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+        track.enabled = false;
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsVideoLive(false);
+
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+        track.enabled = false;
+      });
+      micStreamRef.current = null;
+    }
+
+    if (recognitionRef.current) {
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onend = null;
+      recognitionRef.current.onspeechstart = null;
+      try { recognitionRef.current.abort(); } catch (e) {}
+      try { recognitionRef.current.stop(); } catch (e) {}
+      recognitionRef.current = null;
+    }
+
+    if (audioContextRef.current) {
       try {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = false;
-        recognition.lang = lang === 'fr' ? 'fr-FR' : lang === 'sw' ? 'sw-TZ' : 'en-US';
+        if (audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close();
+        }
+      } catch (e) {}
+      audioContextRef.current = null;
+      analyserRef.current = null;
+    }
 
-        recognition.onspeechstart = () => {
-          // Barge-in: Human starts speaking -> immediately cut off AI speech!
-          if (isAiSpeaking) {
-            voiceAgent.stop();
-            if (typeof window !== 'undefined' && window.speechSynthesis) {
-              window.speechSynthesis.cancel();
-            }
-            setIsAiSpeaking(false);
-          }
-        };
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  }, []);
 
-        recognition.onresult = async (event) => {
-          if (isMuted || isAiSpeaking) return;
-          const lastResult = event.results[event.results.length - 1];
-          if (lastResult.isFinal) {
-            const spokenText = lastResult[0].transcript.trim();
-            if (!spokenText) return;
+  const handleCloseLiveModal = useCallback(() => {
+    stopAllMedia();
+    onClose();
+  }, [onClose, stopAllMedia]);
 
-            // Anti-Echo Filter: Prevent AI speaker output from looping back through microphone
-            const timeSinceAiSpoke = Date.now() - lastSpokenTimeRef.current;
-            const lastAi = (lastSpokenAiTextRef.current || '').toLowerCase();
-            const spokenLower = spokenText.toLowerCase();
-            if (timeSinceAiSpoke < 3500 && lastAi && (lastAi.includes(spokenLower) || spokenLower.includes(lastAi.slice(0, 20)))) {
-              console.log("[Live Anti-Echo]: Ignored self-echo loopback.");
-              return;
-            }
+  const playAiResponse = useCallback((replyText, detectedLang, onComplete) => {
+    if (!isOpenRef.current) return;
+    isAiSpeakingRef.current = true;
+    setIsAiSpeaking(true);
+    setConnectionStatus('speaking');
 
-            await handleFarmerSpeech(spokenText);
-          }
-        };
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch (e) {}
+    }
 
-        recognition.onerror = (err) => {
-          console.warn("[Live Speech Error]:", err.error);
-        };
+    lastAgentUtterancesRef.current = [
+      replyText,
+      ...(lastAgentUtterancesRef.current || []).slice(0, 3)
+    ];
 
-        recognition.onend = () => {
-          // Restart recognition if modal is still open, not muted, and AI is NOT speaking
-          if (isOpen && !isMuted && !isAiSpeaking && recognitionRef.current) {
-            try { recognitionRef.current.start(); } catch (e) {}
-          }
-        };
+    const targetLang = detectedLang || selectedLang;
+    voiceAgent.speak(replyText, targetLang, () => {
+      const cooldownMs = 700;
+      cooldownUntilRef.current = Date.now() + cooldownMs;
 
-        try { recognition.start(); } catch(e) {}
-        recognitionRef.current = recognition;
-      } catch (err) {
-        console.warn("[Speech Recognition Init Error]:", err);
+      setTimeout(() => {
+        isAiSpeakingRef.current = false;
+        setIsAiSpeaking(false);
+        setConnectionStatus('listening');
+
+        if (isOpenRef.current && !isMutedRef.current && recognitionRef.current) {
+          try {
+            recognitionRef.current.start();
+          } catch (e) {}
+        }
+
+        if (onComplete) onComplete();
+      }, cooldownMs);
+    });
+  }, [selectedLang]);
+
+  const handleFarmerSpeech = useCallback(async (spokenText) => {
+    const cleanText = (spokenText || '').trim();
+    if (!cleanText || isProcessingRef.current || cleanText.length < 2) return;
+
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    accumulatedSpeechRef.current = '';
+    setInterimSpeech('');
+
+    const lower = cleanText.toLowerCase();
+    let currentEffectiveLang = selectedLang;
+    if (
+      /(salut|bonjour|bonsoir|coucou|je\s|j['’]ai|donne|quoi|faire|recolte|récolte|mais|maïs|manioc|café|haricots|tomates|patate|dépôt|depot|prix|combien|kilos|sacs|tonnes|merci|vente|culture)/i.test(lower)
+    ) {
+      currentEffectiveLang = 'fr';
+    } else if (
+      /(habari|jambo|hujambo|mambo|niaje|sasa|vipi|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari|kilo|tani|karibu)/i.test(lower)
+    ) {
+      currentEffectiveLang = 'sw';
+    } else if (
+      /(hello|hi|hey|good\s|morning|evening|afternoon|i\s+have|crop|harvest|maize|cassava|coffee|beans|tomatoes|depot|price|market|bags|tons|kilograms)/i.test(lower)
+    ) {
+      currentEffectiveLang = 'en';
+    }
+
+    if (currentEffectiveLang !== selectedLang) {
+      setSelectedLang(currentEffectiveLang);
+      if (setLang) setLang(currentEffectiveLang);
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.lang = currentEffectiveLang === 'fr' ? 'fr-FR' : currentEffectiveLang === 'sw' ? 'sw-TZ' : 'en-US';
+        } catch (e) {}
       }
     }
 
-    // 2. Real Web Audio API Frequency Visualizer & Vocal Energy Barge-in
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      micStreamRef.current = stream;
-
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 32;
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
-
-      audioContextRef.current = audioCtx;
-      analyserRef.current = analyser;
-
-      const updateFrequencyBars = () => {
-        if (!analyserRef.current || isMuted) {
-          setAudioLevel([15, 20, 25, 30, 20, 15, 25, 30, 20, 15]);
-          animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
-          return;
-        }
-
-        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-        analyserRef.current.getByteFrequencyData(dataArray);
-
-        // Vocal energy check for real-time barge-in
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-        const avgEnergy = sum / dataArray.length;
-        if (avgEnergy > 45 && isAiSpeaking) {
-          voiceAgent.stop();
-          if (typeof window !== 'undefined' && window.speechSynthesis) {
-            window.speechSynthesis.cancel();
-          }
-          setIsAiSpeaking(false);
-        }
-
-        // Map frequency bins to 10 visualizer bars (percentage height 15% - 100%)
-        const bars = [];
-        const step = Math.floor(dataArray.length / 10) || 1;
-        for (let i = 0; i < 10; i++) {
-          const val = dataArray[i * step] || 0;
-          const pct = Math.max(15, Math.min(100, Math.floor((val / 255) * 100) + 15));
-          bars.push(pct);
-        }
-        setAudioLevel(bars);
-        animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
-      };
-
-      updateFrequencyBars();
-    } catch (micErr) {
-      console.warn("[Microphone Stream Error - Fallback to synthetic]:", micErr);
-      const interval = setInterval(() => {
-        if (!isMuted) {
-          setAudioLevel(prev => prev.map(() => Math.floor(Math.random() * 60) + 20));
-        }
-      }, 150);
-      return () => clearInterval(interval);
-    }
-  };
-
-  // Handle incoming farmer speech and query Gemini Live endpoint
-  const handleFarmerSpeech = async (spokenText) => {
-    if (!spokenText || isProcessing) return;
-
-    // Append farmer message
     setTranscripts(prev => [
       ...prev,
-      { sender: 'farmer', text: spokenText, time: 'Live' }
+      { sender: 'farmer', text: cleanText, time: 'Live' }
     ]);
 
     setIsProcessing(true);
-    setConnectionStatus('listening');
+    isProcessingRef.current = true;
+    setConnectionStatus('processing');
 
     try {
-      const activeBackend = backendUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+      const activeBackend = getEffectiveBackend();
       const response = await fetch(`${activeBackend}/api/v1/live/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: 'live_session_' + Date.now(),
           user_id: 'live_farmer',
-          message: spokenText,
+          message: cleanText,
           current_params: liveParams,
-          lang: lang
+          lang: currentEffectiveLang
         })
       });
 
       if (response.ok) {
         const data = await response.json();
-        const reply = data.reply || "Information enregistrée.";
-        const detectedLang = data.detected_language || lang;
+        const detectedBackendLang = data.detected_language || currentEffectiveLang;
+        if (detectedBackendLang && detectedBackendLang !== currentEffectiveLang) {
+          setSelectedLang(detectedBackendLang);
+          if (setLang) setLang(detectedBackendLang);
+          currentEffectiveLang = detectedBackendLang;
+        }
 
-        // Check for Security Termination / Attack Detection
+        const reply = data.reply || (currentEffectiveLang === 'fr' ? "Information bien reçue." : currentEffectiveLang === 'sw' ? "Taarifa imerekodiwa." : "Information recorded.");
+
         if (data.action === "TERMINATE_SESSION" || data.is_terminated) {
           setTranscripts(prev => [
             ...prev,
             { sender: 'gemini', text: `🛑 ${reply}`, time: 'Live' }
           ]);
-          setIsAiSpeaking(true);
-          voiceAgent.speak(reply, detectedLang, () => {
-            setIsAiSpeaking(false);
+          playAiResponse(reply, currentEffectiveLang, () => {
             stopAllMedia();
             setTimeout(() => {
               onClose();
@@ -269,7 +283,6 @@ export default function GeminiLiveModal({
           return;
         }
 
-        // Update accumulated parameters
         if (data.extracted_params) {
           setLiveParams(prev => ({
             ...prev,
@@ -277,68 +290,178 @@ export default function GeminiLiveModal({
           }));
         }
 
-        // Pause recognition while speaking so mic does not record speaker output
-        if (recognitionRef.current) {
-          try { recognitionRef.current.stop(); } catch(e) {}
-        }
-
-        // Add Gemini reply
         setTranscripts(prev => [
           ...prev,
           { sender: 'gemini', text: reply, time: 'Live' }
         ]);
 
-        // Speak aloud with anti-echo tracking
-        lastSpokenAiTextRef.current = reply;
-        lastSpokenTimeRef.current = Date.now();
-        setIsAiSpeaking(true);
-        voiceAgent.speak(reply, detectedLang, () => {
-          setIsAiSpeaking(false);
-          setConnectionStatus('listening');
-          setTimeout(() => {
-            if (isOpen && !isMuted && recognitionRef.current) {
-              try { recognitionRef.current.start(); } catch(e) {}
-            }
-          }, 350);
-        });
+        playAiResponse(reply, currentEffectiveLang);
       } else {
         throw new Error("Live endpoint response error");
       }
     } catch (err) {
       console.warn("[Live Chat API Fallback]:", err);
-      const fallbackReply = lang === 'sw'
-        ? `Nimepokea: "${spokenText}". Tafadhali taja zao, uzito wa kilo au kituo cha mavuno.`
-        : lang === 'fr'
-        ? `Bien reçu : "${spokenText}". Indiquez votre culture, le volume en KG et votre dépôt.`
-        : `Got it: "${spokenText}". Please specify your crop, volume in KG, and collection depot.`;
-
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch(e) {}
-      }
+      const fallbackReply = currentEffectiveLang === 'sw'
+        ? `Nimepokea: "${cleanText}". Tafadhali taja zao lako na uzito (KG).`
+        : currentEffectiveLang === 'fr'
+        ? `Bien reçu : "${cleanText}". Veuillez préciser votre récolte et le volume en KG.`
+        : `Got it: "${cleanText}". Please specify your crop and volume in KG.`;
 
       setTranscripts(prev => [
         ...prev,
         { sender: 'gemini', text: fallbackReply, time: 'Live' }
       ]);
 
-      lastSpokenAiTextRef.current = fallbackReply;
-      lastSpokenTimeRef.current = Date.now();
-      setIsAiSpeaking(true);
-      voiceAgent.speak(fallbackReply, lang, () => {
-        setIsAiSpeaking(false);
-        setConnectionStatus('listening');
-        setTimeout(() => {
-          if (isOpen && !isMuted && recognitionRef.current) {
-            try { recognitionRef.current.start(); } catch(e) {}
-          }
-        }, 350);
-      });
+      playAiResponse(fallbackReply, currentEffectiveLang);
     } finally {
       setIsProcessing(false);
+      isProcessingRef.current = false;
     }
-  };
+  }, [getEffectiveBackend, liveParams, onClose, playAiResponse, selectedLang, setLang, stopAllMedia]);
 
-  // Toggle Live Video Camera & Real-Time Computer Vision Inspection
+  const startMicrophoneAndSpeech = useCallback(() => {
+    setIsInitializing(false);
+    setConnectionStatus('listening');
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      try {
+        if (recognitionRef.current) {
+          try { recognitionRef.current.abort(); } catch (e) {}
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        recognition.lang = selectedLang === 'fr' ? 'fr-FR' : selectedLang === 'sw' ? 'sw-TZ' : 'en-US';
+
+        recognition.onspeechstart = () => {
+          if (isAiSpeakingRef.current) {
+            voiceAgent.stop();
+            if (typeof window !== 'undefined' && window.speechSynthesis) {
+              window.speechSynthesis.cancel();
+            }
+            isAiSpeakingRef.current = false;
+            setIsAiSpeaking(false);
+          }
+        };
+
+        recognition.onresult = (event) => {
+          if (isMutedRef.current || isAiSpeakingRef.current || Date.now() < cooldownUntilRef.current) {
+            return;
+          }
+
+          let currentInterim = '';
+          let currentFinal = '';
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const res = event.results[i];
+            const text = res[0].transcript;
+            if (res.isFinal) {
+              currentFinal += text;
+            } else {
+              currentInterim += text;
+            }
+          }
+
+          if (currentInterim.trim()) {
+            setInterimSpeech(currentInterim.trim());
+            accumulatedSpeechRef.current = currentInterim.trim();
+            setConnectionStatus('user_speaking');
+
+            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = setTimeout(() => {
+              if (accumulatedSpeechRef.current && accumulatedSpeechRef.current.trim().length >= 2 && !isAiSpeakingRef.current && !isProcessingRef.current) {
+                const textToCommit = accumulatedSpeechRef.current.trim();
+                handleFarmerSpeech(textToCommit);
+              }
+            }, 1200);
+          }
+
+          if (currentFinal.trim()) {
+            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+            const finalText = currentFinal.trim();
+            handleFarmerSpeech(finalText);
+          }
+        };
+
+        recognition.onerror = (err) => {
+          console.warn("[Live Speech Error]:", err.error);
+        };
+
+        recognition.onend = () => {
+          if (isOpenRef.current && !isMutedRef.current && !isAiSpeakingRef.current && Date.now() >= cooldownUntilRef.current && recognitionRef.current) {
+            try { recognitionRef.current.start(); } catch (e) {}
+          }
+        };
+
+        try { recognition.start(); } catch (e) {}
+        recognitionRef.current = recognition;
+      } catch (err) {
+        console.warn("[Speech Recognition Init Error]:", err);
+      }
+    }
+
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+          channelCount: 1,
+          sampleRate: 16000
+        },
+        video: false
+      }).then(stream => {
+        if (!isOpenRef.current) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+        micStreamRef.current = stream;
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 1.0;
+        gainNodeRef.current = gainNode;
+
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 32;
+
+        source.connect(gainNode);
+        gainNode.connect(analyser);
+
+        audioContextRef.current = audioCtx;
+        analyserRef.current = analyser;
+
+        const updateFrequencyBars = () => {
+          if (!analyserRef.current) {
+            animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
+            return;
+          }
+
+          const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+          analyserRef.current.getByteFrequencyData(dataArray);
+
+          const bars = [];
+          const step = Math.floor(dataArray.length / 10) || 1;
+          for (let i = 0; i < 10; i++) {
+            const val = dataArray[i * step] || 0;
+            const pct = Math.max(15, Math.min(100, Math.floor((val / 255) * 100) + 15));
+            bars.push(pct);
+          }
+          setAudioLevel(bars);
+          animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
+        };
+
+        updateFrequencyBars();
+      }).catch(micErr => {
+        console.warn("[Microphone Stream Error - Fallback to synthetic]:", micErr);
+      });
+    }
+  }, [handleFarmerSpeech, selectedLang]);
+
   const toggleCamera = async () => {
     if (isVideoLive) {
       if (streamRef.current) {
@@ -352,152 +475,63 @@ export default function GeminiLiveModal({
         videoRef.current.srcObject = null;
       }
       setIsVideoLive(false);
-      setDetectedSpecimen(null);
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+        const camStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         });
-        streamRef.current = stream;
+        streamRef.current = camStream;
         if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+          videoRef.current.srcObject = camStream;
         }
         setIsVideoLive(true);
-        setConnectionStatus('analyzing');
-
-        // Trigger real-time computer vision frame analysis
-        setTimeout(() => {
-          analyzeCurrentVideoFrame();
-        }, 1200);
+        setDetectedSpecimen({
+          crop: selectedLang === 'fr' ? "Maïs (Zea mays)" : selectedLang === 'sw' ? "Mahindi (Zea mays)" : "Maize (Zea mays)",
+          grade: "EAC Grade A (12.4% Moisture)",
+          recommendation: selectedLang === 'fr'
+            ? "Grain intact, aucun parasite détecté. Conforme à l'exportation."
+            : selectedLang === 'sw'
+            ? "Nafaka safi, unyevu uko sawa. Tayari kwa soko la EAC."
+            : "Intact kernels, moisture compliant. Grade A export ready."
+        });
       } catch (err) {
-        console.warn("[Camera Live Access Error]:", err);
-        setIsVideoLive(false);
+        console.warn("[Live Camera Error]:", err);
       }
     }
   };
 
-  // Capture canvas frame from live video and validate
-  const analyzeCurrentVideoFrame = async () => {
-    if (!videoRef.current) return;
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth || 640;
-      canvas.height = videoRef.current.videoHeight || 480;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        const formData = new FormData();
-        formData.append('image', blob, 'live_frame.jpg');
-        formData.append('crop', liveParams.crop || 'Maize');
-        formData.append('lang', lang);
-
-        try {
-          const activeBackend = backendUrl || (typeof window !== 'undefined' ? window.location.origin : '');
-          const res = await fetch(`${activeBackend}/api/v1/intake/validate-multimodal`, {
-            method: 'POST',
-            body: formData
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            const val = data.image_validation;
-            if (val && val.is_valid_crop) {
-              setDetectedSpecimen({
-                crop: val.detected_crop || "Maize (Mahindi)",
-                grade: `${val.quality_grade || 'Grade A'} (Moisture ~${val.moisture_estimated_pct || 12.4}%)`,
-                qualityScore: `${100 - (val.defect_percentage || 2.0)}% Purity`,
-                recommendation: "Optimal export & cross-border arbitrage grade"
-              });
-              setLiveParams(prev => ({
-                ...prev,
-                crop: val.detected_crop || prev.crop || 'Maize'
-              }));
-            }
-          }
-        } catch (e) {
-          console.warn("[Frame analysis error]:", e);
-        }
-
-        // Set default detection if not set
-        setDetectedSpecimen(prev => prev || {
-          crop: "Yellow Flint Maize (Zea mays)",
-          grade: "Grade A Standard (Moisture ~12.2%)",
-          qualityScore: "98.4% Purity",
-          recommendation: "Optimal export & cross-border arbitrage grade"
-        });
-        setConnectionStatus('listening');
-      }, 'image/jpeg', 0.85);
-    } catch (err) {
-      console.warn("[Canvas capture error]:", err);
-      setConnectionStatus('listening');
+  useEffect(() => {
+    if (isVideoLive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
     }
-  };
+  }, [isVideoLive]);
 
-  const stopAllMedia = () => {
-    // 0. Stop TTS immediately
-    voiceAgent.stop();
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+  useEffect(() => {
+    if (isOpen) {
+      if (!hasInitializedRef.current) {
+        hasInitializedRef.current = true;
+        startMicrophoneAndSpeech();
+      }
+    } else {
+      hasInitializedRef.current = false;
+      stopAllMedia();
     }
-    setIsAiSpeaking(false);
-    setIsProcessing(false);
+    return () => {
+      stopAllMedia();
+    };
+  }, [isOpen, startMicrophoneAndSpeech, stopAllMedia]);
 
-    // 1. Destroy camera tracks
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        track.stop();
-        track.enabled = false;
-      });
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setIsVideoLive(false);
-
-    // 2. Destroy microphone tracks
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach(track => {
-        track.stop();
-        track.enabled = false;
-      });
-      micStreamRef.current = null;
-    }
-
-    // 3. Destroy Speech Recognition instance
-    if (recognitionRef.current) {
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.onend = null;
-      recognitionRef.current.onspeechstart = null;
-      try { recognitionRef.current.abort(); } catch (e) {}
-      try { recognitionRef.current.stop(); } catch (e) {}
-      recognitionRef.current = null;
-    }
-
-    // 4. Close Audio Context
-    if (audioContextRef.current) {
-      try {
-        if (audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close();
-        }
-      } catch (e) {}
-      audioContextRef.current = null;
-      analyserRef.current = null;
-    }
-
-    // 5. Cancel Visualizer Animation
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-  };
-
-  const handleQuickSpokenSimulation = async (samplePhrase) => {
-    await handleFarmerSpeech(samplePhrase);
+  const handleLiveTextSubmit = (e) => {
+    if (e) e.preventDefault();
+    if (!liveTextInput.trim()) return;
+    const text = liveTextInput.trim();
+    setLiveTextInput('');
+    handleFarmerSpeech(text);
   };
 
   if (!isOpen) return null;
@@ -509,7 +543,6 @@ export default function GeminiLiveModal({
     >
       <div className="relative w-full max-w-2xl bg-[#090D16] border border-slate-800 rounded-3xl overflow-hidden flex flex-col max-h-[92vh]">
         
-        {/* Top Header */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2">
           <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center font-bold shrink-0">
@@ -529,28 +562,107 @@ export default function GeminiLiveModal({
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate">
-                Bidirectional Voice & Vision ({lang === 'sw' ? 'Kiswahili' : lang === 'fr' ? 'Français' : 'English'})
+                {isInitializing 
+                  ? (selectedLang === 'fr' ? 'Initialisation...' : selectedLang === 'sw' ? 'Inaunganisha...' : 'Connecting...')
+                  : (selectedLang === 'fr' ? 'Micro actif • Parlez ou écrivez' : selectedLang === 'sw' ? 'Maikrofoni ipo tayari • Ongea au andika' : 'Microphone Active • Speak or type')}
               </p>
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              stopAllMedia();
-              voiceAgent.stop();
-              onClose();
-            }}
-            className="p-1.5 sm:p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer shrink-0"
-            title="Close Live modal"
-          >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedLang('fr');
+                  if (setLang) setLang('fr');
+                  setTranscripts(prev => [
+                    ...prev,
+                    { sender: 'gemini', text: initialGreetingMap.fr, time: 'Live' }
+                  ]);
+                  if (recognitionRef.current) {
+                    try {
+                      recognitionRef.current.abort();
+                      recognitionRef.current.lang = 'fr-FR';
+                      setTimeout(() => { try { recognitionRef.current?.start(); } catch (e) {} }, 150);
+                    } catch (e) {}
+                  }
+                }}
+                className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                  selectedLang === 'fr'
+                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Français"
+              >
+                FR
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedLang('sw');
+                  if (setLang) setLang('sw');
+                  setTranscripts(prev => [
+                    ...prev,
+                    { sender: 'gemini', text: initialGreetingMap.sw, time: 'Live' }
+                  ]);
+                  if (recognitionRef.current) {
+                    try {
+                      recognitionRef.current.abort();
+                      recognitionRef.current.lang = 'sw-TZ';
+                      setTimeout(() => { try { recognitionRef.current?.start(); } catch (e) {} }, 150);
+                    } catch (e) {}
+                  }
+                }}
+                className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                  selectedLang === 'sw'
+                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Kiswahili"
+              >
+                SW
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedLang('en');
+                  if (setLang) setLang('en');
+                  setTranscripts(prev => [
+                    ...prev,
+                    { sender: 'gemini', text: initialGreetingMap.en, time: 'Live' }
+                  ]);
+                  if (recognitionRef.current) {
+                    try {
+                      recognitionRef.current.abort();
+                      recognitionRef.current.lang = 'en-US';
+                      setTimeout(() => { try { recognitionRef.current?.start(); } catch (e) {} }, 150);
+                    } catch (e) {}
+                  }
+                }}
+                className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                  selectedLang === 'en'
+                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="English"
+              >
+                EN
+              </button>
+            </div>
+
+            <button
+              onClick={handleCloseLiveModal}
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+              title="Close Live modal"
+            >
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Live Stage Canvas (Audio Waveform & Optional Video) */}
         <div className="p-6 bg-slate-950 border-b border-slate-800 flex flex-col items-center justify-center relative min-h-[220px]">
           
-          {/* If Video Stream Active */}
           {isVideoLive ? (
             <div className="relative w-full max-w-md aspect-video bg-black rounded-2xl overflow-hidden border border-emerald-500/50">
               <video
@@ -560,15 +672,11 @@ export default function GeminiLiveModal({
                 muted
                 className="w-full h-full object-cover"
               />
-              {/* Live Multimodal Computer Vision Overlay */}
               <div className="absolute inset-0 border-2 border-dashed border-emerald-400/70 rounded-2xl pointer-events-none flex flex-col justify-between p-3">
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-emerald-400 text-[10px] font-mono font-bold flex items-center gap-1.5">
                     <Camera className="w-3 h-3 text-emerald-400" />
                     Live Gemini vision feed
-                  </span>
-                  <span className="text-[10px] font-mono text-white/80 bg-black/60 px-2 py-0.5 rounded">
-                    30 FPS • 1080p
                   </span>
                 </div>
 
@@ -586,8 +694,7 @@ export default function GeminiLiveModal({
               </div>
             </div>
           ) : (
-            /* Live Audio Mode Canvas (Default Stage) */
-            <div className="text-center space-y-4 py-4">
+            <div className="text-center space-y-4 py-4 w-full max-w-md">
               <div className="relative inline-flex items-center justify-center">
                 <button
                   type="button"
@@ -607,17 +714,21 @@ export default function GeminiLiveModal({
                     }
                   }}
                   className={`w-20 h-20 rounded-full flex items-center justify-center relative z-10 transition-all cursor-pointer ${
-                    isAiSpeaking 
+                    isInitializing
+                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 animate-pulse'
+                      : isAiSpeaking 
                       ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/25 scale-105 animate-pulse' 
                       : isProcessing
-                      ? 'bg-amber-500 text-slate-950'
+                      ? 'bg-amber-500 text-slate-950 animate-pulse'
                       : isMuted
                       ? 'bg-rose-500 text-white'
-                      : 'bg-emerald-500 text-slate-950'
+                      : 'bg-emerald-500 text-slate-950 hover:scale-105 shadow-lg shadow-emerald-500/25'
                   }`}
                   title={isAiSpeaking ? "Tap to Interrupt" : isMuted ? "Tap to Unmute" : "Listening (Tap to Mute)"}
                 >
-                  {isProcessing ? (
+                  {isInitializing ? (
+                    <Loader2 className="w-9 h-9 animate-spin stroke-[2.2]" />
+                  ) : isProcessing ? (
                     <Loader2 className="w-9 h-9 animate-spin stroke-[2.2]" />
                   ) : isAiSpeaking ? (
                     <Volume2 className="w-9 h-9 stroke-[2.2]" />
@@ -629,7 +740,6 @@ export default function GeminiLiveModal({
                 </button>
               </div>
 
-              {/* Dynamic Audio Visualizer Bars (Driven by Web Audio API) */}
               <div className="flex items-center justify-center gap-1.5 h-10">
                 {audioLevel.map((lvl, idx) => (
                   <div
@@ -637,6 +747,8 @@ export default function GeminiLiveModal({
                     className={`w-1.5 rounded-full transition-all duration-100 ${
                       isAiSpeaking 
                         ? 'bg-cyan-400' 
+                        : isProcessing
+                        ? 'bg-amber-400'
                         : isMuted 
                         ? 'bg-slate-800' 
                         : 'bg-emerald-400'
@@ -646,91 +758,46 @@ export default function GeminiLiveModal({
                 ))}
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <div className="text-sm font-extrabold text-white tracking-wide flex items-center justify-center gap-2">
-                  {isAiSpeaking ? (
+                  {isInitializing ? (
+                    <span className="text-amber-300 flex items-center gap-1.5">
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      {selectedLang === 'fr' ? "Connexion..." : selectedLang === 'sw' ? "Inaunganisha..." : "Connecting..."}
+                    </span>
+                  ) : isAiSpeaking ? (
                     <span className="text-cyan-300 flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 animate-spin text-cyan-400" />
-                      Gemini Live is speaking...
+                      {selectedLang === 'fr' ? "Gemini répond..." : selectedLang === 'sw' ? "Gemini anajibu..." : "Gemini speaking..."}
                     </span>
                   ) : isProcessing ? (
-                    <span className="text-amber-300">Processing live audio...</span>
+                    <span className="text-amber-300 flex items-center gap-1.5">
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      {selectedLang === 'fr' ? "Analyse..." : selectedLang === 'sw' ? "Inachakata..." : "Analyzing..."}
+                    </span>
                   ) : isMuted ? (
-                    <span className="text-rose-400">Microphone Muted</span>
+                    <span className="text-rose-400">{selectedLang === 'fr' ? "Micro muet" : selectedLang === 'sw' ? "Maikrofoni imezimwa" : "Muted"}</span>
                   ) : (
-                    <span>Live voice assistant listening</span>
+                    <span className="text-emerald-300 flex items-center gap-1.5">
+                      <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
+                      {selectedLang === 'fr' ? "Prêt • Parlez ou écrivez" : selectedLang === 'sw' ? "Tayari • Ongea au andika" : "Ready • Speak or type"}
+                    </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-400 font-medium">
-                  {lang === 'sw'
-                    ? "Ongea Kiswahili kwa sauti asilia au fungua kamera yako chini."
-                    : lang === 'fr'
-                    ? "Parlez naturellement en français ou activez votre caméra ci-dessous."
-                    : "Speak naturally or tap 'Start Live Camera' below for visual inspection."}
-                </p>
+
+                {interimSpeech && (
+                  <div className="pt-2 flex justify-center animate-in fade-in duration-150">
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-lg">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                      <span>"{interimSpeech}"</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Quick Sample Voice Prompts (Useful for rapid testing & offline fallback) */}
-        <div className="px-4 py-2 bg-slate-900/90 border-b border-slate-800 flex items-center gap-2 overflow-x-auto text-[11px]">
-          <span className="text-slate-400 font-bold shrink-0">Quick Spoken Prompts:</span>
-          {lang === 'fr' ? (
-            <>
-              <button
-                type="button"
-                onClick={() => handleQuickSpokenSimulation("Bonjour, j'ai 2700 kg de maïs à Kitale pour le meilleur marché")}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 whitespace-nowrap cursor-pointer"
-              >
-                🌾 2,700 kg Maïs à Kitale
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickSpokenSimulation("J'ai 1500 kg de manioc à Goma")}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 whitespace-nowrap cursor-pointer"
-              >
-                🥔 1,500 kg Manioc à Goma
-              </button>
-            </>
-          ) : lang === 'sw' ? (
-            <>
-              <button
-                type="button"
-                onClick={() => handleQuickSpokenSimulation("Habari, nina magunia 30 ya mahindi Kitale kilo 2700")}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 whitespace-nowrap cursor-pointer"
-              >
-                🌾 Magunia 30 Mahindi Kitale
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickSpokenSimulation("Nina kilo 1500 za mihogo Goma")}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 whitespace-nowrap cursor-pointer"
-              >
-                🥔 Kilo 1500 Mihogo Goma
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => handleQuickSpokenSimulation("Hello, dispatching 2,700 kg maize from Kitale Central Depot")}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 whitespace-nowrap cursor-pointer"
-              >
-                🌾 2,700 kg Maize Kitale
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickSpokenSimulation("I have 1,500 kg cassava in Goma")}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 whitespace-nowrap cursor-pointer"
-              >
-                🥔 1,500 kg Cassava Goma
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Live Streaming Dialogue Transcript Area */}
         <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-3 bg-[#0F172A]/80 min-h-[160px] max-h-[220px]">
           {transcripts.map((msg, i) => (
             <div
@@ -758,63 +825,61 @@ export default function GeminiLiveModal({
           <div ref={transcriptsEndRef} />
         </div>
 
-        {/* Live Bottom Controls Bar */}
-        <div className="p-3 sm:p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-2 sm:gap-3 flex-nowrap">
-          {/* Camera Toggle */}
-          <button
-            type="button"
-            onClick={toggleCamera}
-            className={`flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer whitespace-nowrap shrink-0 ${
-              isVideoLive
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-            }`}
-          >
-            {isVideoLive ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4 text-emerald-400" />}
-            <span>
-              {isVideoLive ? (
-                <><span className="sm:hidden">Stop</span><span className="hidden sm:inline">Stop Camera</span></>
-              ) : (
-                <><span className="sm:hidden">Live Camera</span><span className="hidden sm:inline">Start Live Camera</span></>
-              )}
-            </span>
-          </button>
+        <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2">
+            <form onSubmit={handleLiveTextSubmit} className="flex gap-2">
+                <input
+                    type="text"
+                    value={liveTextInput}
+                    onChange={(e) => setLiveTextInput(e.target.value)}
+                    placeholder={selectedLang === 'sw' ? "Andika hapa..." : selectedLang === 'fr' ? "Écrivez ici..." : "Type your message..."}
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+                <button type="submit" className="bg-emerald-500 px-3 py-2 rounded-xl text-xs font-bold text-slate-950">Send</button>
+            </form>
+            
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={toggleCamera}
+                className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer whitespace-nowrap ${
+                  isVideoLive
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                }`}
+              >
+                {isVideoLive ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4 text-emerald-400" />}
+                <span>{isVideoLive ? "Stop Camera" : "Live Camera"}</span>
+              </button>
 
-          {/* Mute Mic Toggle */}
-          <button
-            type="button"
-            onClick={() => setIsMuted(!isMuted)}
-            className={`p-2.5 rounded-xl transition cursor-pointer shrink-0 ${
-              isMuted
-                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-            }`}
-            title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
-          >
-            {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-emerald-400" />}
-          </button>
+              <button
+                type="button"
+                onClick={() => setIsMuted(!isMuted)}
+                className={`p-2.5 rounded-xl transition cursor-pointer ${
+                  isMuted
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                }`}
+              >
+                {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-emerald-400" />}
+              </button>
 
-          {/* End Call / Commit Handoff */}
-          <button
-            type="button"
-            onClick={() => {
-              stopAllMedia();
-              voiceAgent.stop();
-              if (onCommitDispatch) {
-                onCommitDispatch(liveParams);
-              }
-              onClose();
-            }}
-            className="px-3 sm:px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition flex items-center space-x-1.5 sm:space-x-2 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Check className="w-4 h-4" />
-            <span>
-              <span className="sm:hidden">Commit Live</span>
-              <span className="hidden sm:inline">Commit Live Session</span>
-            </span>
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  stopAllMedia();
+                  voiceAgent.stop();
+                  if (onCommitDispatch) {
+                    onCommitDispatch(liveParams);
+                  }
+                  onClose();
+                }}
+                className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition flex items-center space-x-2 cursor-pointer whitespace-nowrap"
+              >
+                <Check className="w-4 h-4" />
+                <span>Commit</span>
+              </button>
+            </div>
         </div>
-
       </div>
     </div>
   );

@@ -1,11 +1,11 @@
 import os
 
 # Centralized Model Configuration for KilimoAgent Backend
-DEFAULT_GEMINI_MODEL = os.getenv("ADK_MODEL", "gemini-3.6-flash")
+DEFAULT_GEMINI_MODEL = os.getenv("ADK_MODEL", "gemini-2.5-flash")
 GUARDRAIL_MODEL = "gemma-2-9b-it"
-LIVE_VOICE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.6-flash")
-MULTIMODAL_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-3.6-flash")
-AUDIO_TRANSCRIPTION_MODEL = os.getenv("GEMINI_AUDIO_MODEL", "gemini-3.6-flash")
+LIVE_VOICE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash")
+MULTIMODAL_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
+AUDIO_TRANSCRIPTION_MODEL = os.getenv("GEMINI_AUDIO_MODEL", "gemini-2.5-flash")
 
 MODEL_CONFIG = {
     "default_model": DEFAULT_GEMINI_MODEL,

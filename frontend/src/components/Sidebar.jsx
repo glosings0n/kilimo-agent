@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   SquarePen,
   BookmarkCheck,
@@ -14,8 +13,10 @@ import {
   Globe,
   Navigation,
   FileCheck,
-  MessageSquare
+  MessageSquare,
+  History
 } from 'lucide-react';
+import GeminiIcon from './GeminiIcon';
 import { UkFlag, FranceFlag, TanzaniaFlag } from './Flags';
 
 export default function Sidebar({
@@ -25,9 +26,31 @@ export default function Sidebar({
   onSelectPreset,
   onNewDispatch,
   onOpenArch,
+  onOpenHistory,
+  farmerAccount,
+  inputMode = 'guided',
+  onSelectInputMode,
   lang,
   setLang
 }) {
+  const handleModeClick = (mode) => {
+    if (onSelectInputMode) {
+      onSelectInputMode(mode);
+    }
+    if (window.innerWidth < 768) {
+      setIsExpanded(false);
+    }
+  };
+
+  const handleHistoryClick = () => {
+    if (onOpenHistory) {
+      onOpenHistory();
+    }
+    if (window.innerWidth < 768) {
+      setIsExpanded(false);
+    }
+  };
+
   const handlePresetClick = (preset) => {
     onSelectPreset(preset);
     if (window.innerWidth < 768) {
@@ -60,14 +83,14 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-[#090D16] border-r border-slate-800/90 transition-all duration-300 ease-in-out flex flex-col justify-between select-none ${
+        className={`fixed inset-y-0 left-0 z-50 bg-[#090D16] border-r border-slate-800/90 transition-all duration-300 ease-in-out flex flex-col justify-between select-none overflow-x-hidden ${
           isExpanded
-            ? 'translate-x-0 w-72 '
+            ? 'translate-x-0 w-72'
             : '-translate-x-full md:translate-x-0 md:w-16'
         }`}
       >
         {/* Top Header Section */}
-        <div className={`h-16 flex items-center px-3.5 border-b border-slate-800/80 shrink-0 ${
+        <div className={`h-16 flex items-center px-3.5 border-b border-slate-800/80 shrink-0 overflow-hidden ${
           isExpanded ? 'justify-between' : 'justify-center'
         }`}>
           {/* Logo & Brand */}
@@ -95,8 +118,8 @@ export default function Sidebar({
 
             {/* Custom Tooltip on hover when collapsed */}
             {!isExpanded && (
-              <span className="absolute left-14 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition  pointer-events-none z-50">
-                Open sidebar
+              <span className="absolute left-14 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
+                KilimoAgent Taskmaster (Open sidebar)
               </span>
             )}
           </div>
@@ -114,7 +137,7 @@ export default function Sidebar({
         </div>
 
         {/* Scrollable Middle Section (Presets, New Dispatch, Languages) */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4 min-h-0">
+        <div className={`flex-1 overflow-y-auto overflow-x-hidden ${isExpanded ? 'custom-scrollbar' : 'scrollbar-none'} p-3 space-y-4 min-h-0`}>
             
             {/* New Dispatch Button */}
             <div className="relative group">
@@ -122,7 +145,7 @@ export default function Sidebar({
                 onClick={handleNewDispatchClick}
                 className={`w-full flex items-center rounded-2xl transition cursor-pointer ${
                   isExpanded
-                    ? 'bg-slate-900 hover:bg-slate-800/90 text-white px-3.5 py-3 space-x-3 border border-slate-800 '
+                    ? 'bg-slate-900 hover:bg-slate-800/90 text-white px-3.5 py-3 space-x-3 border border-slate-800'
                     : 'justify-center p-3 text-slate-300 hover:bg-slate-900 hover:text-white rounded-xl'
                 }`}
               >
@@ -134,13 +157,111 @@ export default function Sidebar({
                 )}
               </button>
 
-            {/* Custom Tooltip when collapsed */}
-            {!isExpanded && (
-              <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition  pointer-events-none z-50">
-                New Dispatch
-              </span>
-            )}
-          </div>
+              {/* Custom Tooltip when collapsed */}
+              {!isExpanded && (
+                <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
+                  {lang === 'sw' ? "Usafirishaji Mpya (New Dispatch)" : lang === 'fr' ? "Nouvelle Expédition (New Dispatch)" : "New Dispatch (Reset & Start Fresh)"}
+                </span>
+              )}
+            </div>
+
+            {/* Input Modes (/guided-card vs /quick-prompt vs /history) */}
+            <div className="space-y-1 pt-1 border-t border-slate-800/60">
+              {isExpanded && (
+                <div className="px-2 text-[10px] uppercase tracking-wider font-extrabold text-slate-500">
+                  {lang === 'sw' ? "Njia za Sauti & Maandishi" : lang === 'fr' ? "Modes de Saisie" : "Input Modes"}
+                </div>
+              )}
+
+              {/* 1. Guided Card Stack */}
+              <div className="relative group">
+                <button
+                  type="button"
+                  onClick={() => handleModeClick('guided')}
+                  className={`w-full flex items-center rounded-xl transition cursor-pointer text-left ${
+                    inputMode === 'guided'
+                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
+                  } ${isExpanded ? 'px-3 py-2 space-x-2.5' : 'justify-center p-2.5'}`}
+                >
+                  <GeminiIcon className={`w-4 h-4 shrink-0 ${inputMode === 'guided' ? 'text-emerald-400' : 'text-slate-400'}`} />
+                  {isExpanded && (
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold truncate">
+                        {lang === 'sw' ? "Kadi za Mwongozo" : lang === 'fr' ? "Cartes Guidées" : "Guided Cards"}
+                      </div>
+                      <div className="text-[10px] text-emerald-400 font-mono">@kilimoagent</div>
+                    </div>
+                  )}
+                </button>
+                {!isExpanded && (
+                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
+                    {lang === 'sw' ? "Kadi za Mwongozo (@kilimoagent)" : lang === 'fr' ? "Cartes Guidées (@kilimoagent)" : "Guided Cards (@kilimoagent)"}
+                  </span>
+                )}
+              </div>
+
+              {/* 2. Quick Prompt */}
+              <div className="relative group">
+                <button
+                  type="button"
+                  onClick={() => handleModeClick('quick')}
+                  className={`w-full flex items-center rounded-xl transition cursor-pointer text-left ${
+                    inputMode === 'quick'
+                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
+                  } ${isExpanded ? 'px-3 py-2 space-x-2.5' : 'justify-center p-2.5'}`}
+                >
+                  <Zap className={`w-4 h-4 shrink-0 ${inputMode === 'quick' ? 'text-emerald-400' : 'text-slate-400'}`} />
+                  {isExpanded && (
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold truncate">
+                        {lang === 'sw' ? "Swali la Haraka" : lang === 'fr' ? "Invite Rapide" : "Quick Prompt"}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">@kilimoagent/prompt</div>
+                    </div>
+                  )}
+                </button>
+                {!isExpanded && (
+                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
+                    {lang === 'sw' ? "Swali la Haraka (@kilimoagent/prompt)" : lang === 'fr' ? "Invite Rapide (@kilimoagent/prompt)" : "Quick Prompt (@kilimoagent/prompt)"}
+                  </span>
+                )}
+              </div>
+
+              {/* 3. Farmer History & Cloud Ledger Button (3rd Option) */}
+              <div className="relative group">
+                <button
+                  type="button"
+                  onClick={handleHistoryClick}
+                  className={`w-full flex items-center rounded-xl transition cursor-pointer text-left text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent ${
+                    isExpanded ? 'px-3 py-2 space-x-2.5' : 'justify-center p-2.5'
+                  }`}
+                >
+                  <History className="w-4 h-4 shrink-0 text-cyan-400" />
+                  {isExpanded && (
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-bold truncate text-white">
+                          {lang === 'sw' ? "Historia ya Mkulima" : lang === 'fr' ? "Historique & Factures" : "Farmer History & Bills"}
+                        </div>
+                        {farmerAccount?.email && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-xs shadow-emerald-400/50"></span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-cyan-400/80 font-mono truncate">
+                        /history
+                      </div>
+                    </div>
+                  )}
+                </button>
+                {!isExpanded && (
+                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
+                    {lang === 'sw' ? "Historia & Bili za Mkulima (/history)" : lang === 'fr' ? "Historique & Factures (/history)" : "Farmer History & Waybills (/history)"}
+                  </span>
+                )}
+              </div>
+            </div>
 
           {/* Active Cyber-Physical Agent Capabilities */}
           <div className="space-y-1.5 pt-1">
@@ -151,7 +272,7 @@ export default function Sidebar({
             ) : (
               <div className="relative group w-full flex justify-center py-1">
                 <Cpu className="w-4 h-4 text-slate-400" />
-                <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition  pointer-events-none z-50">
+                <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
                   {lang === 'sw' ? "Zana za Wakala" : lang === 'fr' ? "Outils de l'Agent" : "Agent Capabilities"}
                 </span>
               </div>
@@ -169,7 +290,7 @@ export default function Sidebar({
                     className={`w-full flex items-center rounded-xl transition text-left ${
                       isExpanded
                         ? 'px-3 py-2 space-x-2.5 bg-slate-950/60 border border-slate-800/80 text-slate-300'
-                        : 'justify-center p-2.5 text-slate-400'
+                        : 'justify-center p-2.5 text-slate-400 hover:text-white hover:bg-slate-900/80 cursor-default'
                     }`}
                   >
                     {cap.icon}
@@ -184,6 +305,11 @@ export default function Sidebar({
                       </div>
                     )}
                   </div>
+                  {!isExpanded && (
+                    <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
+                      {cap.title} • {cap.desc}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -211,7 +337,7 @@ export default function Sidebar({
                   {isExpanded && <span className="text-xs font-bold">EN</span>}
                 </button>
                 {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition  pointer-events-none z-50">
+                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
                     English (EN)
                   </span>
                 )}
@@ -230,7 +356,7 @@ export default function Sidebar({
                   {isExpanded && <span className="text-xs font-bold">FR</span>}
                 </button>
                 {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition  pointer-events-none z-50">
+                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
                     Français (FR)
                   </span>
                 )}
@@ -249,7 +375,7 @@ export default function Sidebar({
                   {isExpanded && <span className="text-xs font-bold">SW</span>}
                 </button>
                 {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition  pointer-events-none z-50">
+                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
                     Kiswahili (SW)
                   </span>
                 )}
@@ -259,7 +385,7 @@ export default function Sidebar({
         </div>
 
         {/* Bottom: Engineering Pipeline & Architecture Trigger */}
-        <div className="p-3 border-t border-slate-800/80 bg-slate-950/90 shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+        <div className="p-3 border-t border-slate-800/80 bg-slate-950/90 shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] overflow-hidden">
           <div className="relative group">
           <button
             onClick={handleOpenArchClick}
@@ -284,8 +410,8 @@ export default function Sidebar({
 
           {/* Custom Tooltip when collapsed */}
           {!isExpanded && (
-            <span className="absolute left-14 bottom-0 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition  pointer-events-none z-50">
-              Engineering Pipeline
+            <span className="absolute left-14 bottom-0 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
+              Engineering Pipeline • 5-Layer ADK & GenUI Architecture
             </span>
           )}
         </div>

@@ -82,7 +82,59 @@
   animation: shimmer 1.8s infinite linear;
 }
 
-/* Custom modern dark scrollbar */
+/* ==========================================================================
+   GLOBAL APP SCROLLBAR DESIGN (Modern Dark Theme with Emerald Accent)
+   ========================================================================== */
+
+/* Standard CSS for Firefox & Modern Browsers */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #059669 #090D16;
+}
+
+/* WebKit (Chrome, Edge, Safari, Opera) */
+::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: #090D16;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: #059669;
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: #10B981;
+}
+
+::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
+  background: #090D16;
+}
+
+::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Custom Scrollbar Utility */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #059669 #090D16;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -90,36 +142,58 @@
 
 .custom-scrollbar::-webkit-scrollbar-track {
   background: #090D16;
-  border-radius: 8px;
+  border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #1E293B;
-  border-radius: 8px;
+  background: #059669;
+  border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #047857;
+  background: #10B981;
+}
+
+/* No Scrollbar Utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Print Styles for Waybill */
 @media print {
-  body * {
-    visibility: hidden;
+  html, body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
   }
-  header, main > section:first-child, .no-print {
-    display: none !important;
+  body * {
+    visibility: hidden !important;
   }
   #printable-waybill, #printable-waybill * {
-    visibility: visible;
+    visibility: visible !important;
   }
   #printable-waybill {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    color: #000;
-    background: #fff;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100vw !important;
+    min-height: 100vh !important;
+    margin: 0 !important;
+    padding: 24px !important;
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    border: 2px solid #000000 !important;
+    box-shadow: none !important;
+    z-index: 999999 !important;
+  }
+  .no-print, aside, nav, footer, button, .fab-container {
+    display: none !important;
   }
 }
 
