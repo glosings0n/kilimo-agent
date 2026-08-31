@@ -376,6 +376,8 @@ export default function GeminiLiveModal({
     console.log('[Gemini Live WS Connecting]:', wsUrl);
     let isClosingIntentionally = false;
 
+    let pingTimer = null;
+
     try {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -384,13 +386,21 @@ export default function GeminiLiveModal({
         console.log('[Gemini Live WS Connected]');
         setConnectionStatus('connected');
         initMicrophoneCapture(ws);
+
+        pingTimer = setInterval(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 3000);
       };
 
       ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
 
-          if (payload.type === 'connection_ack') {
+          if (payload.type === 'pong') {
+            return;
+          } else if (payload.type === 'connection_ack') {
             setConnectionStatus('connected');
           } else if (payload.type === 'audio_chunk' && payload.data) {
             setConnectionStatus('speaking');
@@ -432,6 +442,7 @@ export default function GeminiLiveModal({
 
       ws.onclose = (evt) => {
         console.log('[WebSocket Closed]:', evt.code, evt.reason);
+        if (pingTimer) clearInterval(pingTimer);
         if (!isClosingIntentionally) {
           setConnectionStatus('closed');
         }
@@ -443,6 +454,7 @@ export default function GeminiLiveModal({
 
     return () => {
       isClosingIntentionally = true;
+      if (pingTimer) clearInterval(pingTimer);
       cleanupAllResources();
     };
   }, [cleanupAllResources, getEffectiveWsUrl, initMicrophoneCapture, isOpen, playPcm24kChunk, stopAllPlayback]);

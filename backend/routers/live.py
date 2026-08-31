@@ -184,10 +184,10 @@ async def live_websocket_endpoint(websocket: WebSocket):
         )
 
         model_candidates = [
+            "gemini-3.1-flash-live-preview",
             "gemini-2.0-flash-exp",
             "gemini-2.0-flash-realtime-exp",
-            "gemini-2.0-flash",
-            "gemini-3.1-flash-live-preview"
+            "gemini-2.0-flash"
         ]
 
         session_established = False
@@ -195,8 +195,10 @@ async def live_websocket_endpoint(websocket: WebSocket):
 
         for model_name in model_candidates:
             try:
+                print(f"[Gemini Live WS] Attempting connection with model candidate: '{model_name}'...")
                 async with client.aio.live.connect(model=model_name, config=config) as session:
                     session_established = True
+                    print(f"[Gemini Live WS] Successfully connected session with model: '{model_name}'")
                     
                     # Notify client of successful connection with model name
                     await websocket.send_json({
@@ -208,9 +210,21 @@ async def live_websocket_endpoint(websocket: WebSocket):
 
                     async def forward_client_to_gemini():
                         """Reads WebSocket messages from React client and sends to Gemini Live session."""
+                        silence_pcm = b"\x00" * 640  # 20ms of 16kHz 16-bit mono PCM silence
                         try:
                             while True:
-                                data_text = await websocket.receive_text()
+                                try:
+                                    data_text = await asyncio.wait_for(websocket.receive_text(), timeout=3.0)
+                                except asyncio.TimeoutError:
+                                    # Send 20ms silence keepalive ping to prevent Gemini 1011 keepalive ping timeout
+                                    try:
+                                        await session.send_realtime_input(
+                                            audio=types.Blob(data=silence_pcm, mime_type="audio/pcm;rate=16000")
+                                        )
+                                    except Exception as ping_err:
+                                        print(f"[Gemini Live Keepalive Ping Error]: {ping_err}")
+                                    continue
+
                                 if not data_text:
                                     continue
                                 
@@ -220,6 +234,11 @@ async def live_websocket_endpoint(websocket: WebSocket):
                                     continue
 
                                 event_type = payload.get("type", "")
+
+                                # Handle Heartbeat Ping from Frontend
+                                if event_type == "ping":
+                                    await websocket.send_json({"type": "pong"})
+                                    continue
 
                                 # 1. Handle 16kHz PCM Audio Stream
                                 if event_type == "audio_pcm" or payload.get("audio_base64"):
@@ -273,6 +292,7 @@ async def live_websocket_endpoint(websocket: WebSocket):
 
                                 # Input transcription (Farmer speech)
                                 if content.input_transcription and content.input_transcription.text:
+                                    print(f"[Gemini Live Input Transcript]: {content.input_transcription.text}")
                                     await websocket.send_json({
                                         "type": "input_transcription",
                                         "text": content.input_transcription.text
@@ -280,6 +300,7 @@ async def live_websocket_endpoint(websocket: WebSocket):
 
                                 # Output transcription (Gemini speech)
                                 if content.output_transcription and content.output_transcription.text:
+                                    print(f"[Gemini Live Output Transcript]: {content.output_transcription.text}")
                                     await websocket.send_json({
                                         "type": "output_transcription",
                                         "text": content.output_transcription.text
@@ -287,10 +308,12 @@ async def live_websocket_endpoint(websocket: WebSocket):
 
                                 # User interrupted AI speech signal
                                 if content.interrupted:
+                                    print("[Gemini Live Interrupted]")
                                     await websocket.send_json({"type": "interrupted"})
 
                                 # Turn completed
                                 if content.turn_complete:
+                                    print("[Gemini Live Turn Complete]")
                                     await websocket.send_json({"type": "turn_complete"})
 
                         except WebSocketDisconnect:
