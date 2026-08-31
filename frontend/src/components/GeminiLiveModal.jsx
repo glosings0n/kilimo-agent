@@ -6,12 +6,16 @@ import {
   Video,
   VideoOff,
   Activity,
-  Volume2,
   Camera,
-  Radio,
-  Send
+  Radio
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
+
+const LANG_FLAGS = {
+  fr: { flag: '🇫🇷', name: 'Français' },
+  sw: { flag: '🇰🇪', name: 'Kiswahili' },
+  en: { flag: '🇬🇧', name: 'English' }
+};
 
 export default function GeminiLiveModal({
   isOpen,
@@ -24,9 +28,8 @@ export default function GeminiLiveModal({
   const [selectedLang, setSelectedLang] = useState(lang);
   const [isVideoLive, setIsVideoLive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connecting' | 'connected' | 'speaking' | 'error'
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connecting' | 'connected' | 'speaking' | 'error' | 'closed'
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
-  const [textInput, setTextInput] = useState('');
   const [transcripts, setTranscripts] = useState([]);
   const [audioLevel, setAudioLevel] = useState([15, 25, 40, 60, 35, 20, 50, 30, 45, 25]);
 
@@ -60,20 +63,20 @@ export default function GeminiLiveModal({
   }, [transcripts]);
 
   const getEffectiveWsUrl = useCallback(() => {
-    if (backendUrl) {
-      const wsScheme = backendUrl.startsWith('https') ? 'wss' : 'ws';
-      const cleanHost = backendUrl.replace(/^https?:\/\//, '');
-      return `${wsScheme}://${cleanHost}/api/v1/live/ws`;
-    }
-    if (typeof window !== 'undefined') {
-      const isHttps = window.location.protocol === 'https:';
-      const wsScheme = isHttps ? 'wss' : 'ws';
-      if (window.location.hostname.includes('run.app')) {
-        return `wss://kilimo-backend-840262173056.us-central1.run.app/api/v1/live/ws`;
+    let base = backendUrl;
+    if (!base && typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      if (hostname.includes('run.app')) {
+        base = 'https://kilimo-backend-840262173056.us-central1.run.app';
+      } else {
+        base = `${window.location.protocol}//${hostname}:8000`;
       }
-      return `${wsScheme}://${window.location.hostname}:8000/api/v1/live/ws`;
     }
-    return 'ws://localhost:8000/api/v1/live/ws';
+    if (!base) base = 'http://localhost:8000';
+
+    const wsScheme = base.startsWith('https') ? 'wss' : 'ws';
+    const cleanHost = base.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    return `${wsScheme}://${cleanHost}/api/v1/live/ws`;
   }, [backendUrl]);
 
   // Stop all playback audio
@@ -127,7 +130,6 @@ export default function GeminiLiveModal({
       wsRef.current = null;
     }
 
-    setConnectionStatus('connecting');
     setIsVideoLive(false);
   }, [stopAllPlayback]);
 
@@ -234,7 +236,7 @@ export default function GeminiLiveModal({
           setAudioLevel(prev => prev.map(val => Math.max(10, Math.floor(val * 0.8))));
         }
 
-        if (ws.readyState !== WebSocket.OPEN) return;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
         // Base64 encode Int16 PCM bytes safely
         const bytes = new Uint8Array(int16.buffer);
@@ -322,77 +324,78 @@ export default function GeminiLiveModal({
 
     const wsUrl = getEffectiveWsUrl();
     console.log('[Gemini Live WS Connecting]:', wsUrl);
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let isClosingIntentionally = false;
 
-    ws.onopen = () => {
-      console.log('[Gemini Live WS Connected]');
-      setConnectionStatus('connected');
-      initMicrophoneCapture(ws);
-    };
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
+      ws.onopen = () => {
+        console.log('[Gemini Live WS Connected]');
+        setConnectionStatus('connected');
+        initMicrophoneCapture(ws);
+      };
 
-        if (payload.type === 'audio_chunk' && payload.data) {
-          playPcm24kChunk(payload.data);
-        } else if (payload.type === 'input_transcription' && payload.text) {
-          setTranscripts(prev => {
-            const last = prev[prev.length - 1];
-            if (last && last.sender === 'farmer' && last.isInterim) {
-              return [...prev.slice(0, -1), { sender: 'farmer', text: last.text + ' ' + payload.text, time: 'Live' }];
-            }
-            return [...prev, { sender: 'farmer', text: payload.text, time: 'Live' }];
-          });
-        } else if (payload.type === 'output_transcription' && payload.text) {
-          setTranscripts(prev => {
-            const last = prev[prev.length - 1];
-            if (last && last.sender === 'gemini' && last.isInterim) {
-              return [...prev.slice(0, -1), { sender: 'gemini', text: last.text + payload.text, time: 'Live' }];
-            }
-            return [...prev, { sender: 'gemini', text: payload.text, time: 'Live', isInterim: true }];
-          });
-        } else if (payload.type === 'interrupted') {
-          stopAllPlayback();
-        } else if (payload.type === 'turn_complete') {
-          setTranscripts(prev => prev.map(t => ({ ...t, isInterim: false })));
-        } else if (payload.type === 'error') {
-          console.error('[Gemini Live Server Error]:', payload.message);
-          setConnectionStatus('error');
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+
+          if (payload.type === 'connection_ack') {
+            setConnectionStatus('connected');
+          } else if (payload.type === 'audio_chunk' && payload.data) {
+            setConnectionStatus('speaking');
+            playPcm24kChunk(payload.data);
+          } else if (payload.type === 'input_transcription' && payload.text) {
+            setTranscripts(prev => {
+              const last = prev[prev.length - 1];
+              if (last && last.sender === 'farmer' && last.isInterim) {
+                return [...prev.slice(0, -1), { sender: 'farmer', text: last.text + ' ' + payload.text, time: 'Live' }];
+              }
+              return [...prev, { sender: 'farmer', text: payload.text, time: 'Live' }];
+            });
+          } else if (payload.type === 'output_transcription' && payload.text) {
+            setTranscripts(prev => {
+              const last = prev[prev.length - 1];
+              if (last && last.sender === 'gemini' && last.isInterim) {
+                return [...prev.slice(0, -1), { sender: 'gemini', text: last.text + payload.text, time: 'Live' }];
+              }
+              return [...prev, { sender: 'gemini', text: payload.text, time: 'Live', isInterim: true }];
+            });
+          } else if (payload.type === 'interrupted') {
+            stopAllPlayback();
+          } else if (payload.type === 'turn_complete') {
+            setTranscripts(prev => prev.map(t => ({ ...t, isInterim: false })));
+            setConnectionStatus('connected');
+          } else if (payload.type === 'error') {
+            console.error('[Gemini Live Server Error]:', payload.message);
+            setConnectionStatus('error');
+          }
+        } catch (e) {
+          console.warn('[WebSocket Payload Parse Error]:', e);
         }
-      } catch (e) {
-        console.warn('[WebSocket Payload Parse Error]:', e);
-      }
-    };
+      };
 
-    ws.onerror = (err) => {
-      console.warn('[WebSocket Live Connection Error]:', err);
+      ws.onerror = (err) => {
+        console.warn('[WebSocket Live Connection Error]:', err);
+        setConnectionStatus('error');
+      };
+
+      ws.onclose = (evt) => {
+        console.log('[WebSocket Closed]:', evt.code, evt.reason);
+        if (!isClosingIntentionally) {
+          setConnectionStatus('closed');
+        }
+      };
+    } catch (e) {
+      console.error('[WebSocket Init Error]:', e);
       setConnectionStatus('error');
-    };
-
-    ws.onclose = () => {
-      setConnectionStatus('connecting');
-    };
+    }
 
     return () => {
+      isClosingIntentionally = true;
       cleanupAllResources();
     };
   }, [cleanupAllResources, getEffectiveWsUrl, initMicrophoneCapture, isOpen, playPcm24kChunk, stopAllPlayback]);
-
-  // Send Text Message over WebSocket
-  const handleSendTextMessage = useCallback(() => {
-    if (!textInput.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    const msg = textInput.trim();
-    setTextInput('');
-    setTranscripts(prev => [...prev, { sender: 'farmer', text: msg, time: 'Live' }]);
-
-    wsRef.current.send(JSON.stringify({
-      type: 'text_message',
-      text: msg
-    }));
-  }, [textInput]);
 
   if (!isOpen) return null;
 
@@ -428,8 +431,8 @@ export default function GeminiLiveModal({
           </div>
 
           <div className="flex items-center space-x-3">
-            {/* Language Selector */}
-            <div className="flex items-center bg-slate-800 rounded-xl p-1 border border-slate-700">
+            {/* Language Selector - Flags Only */}
+            <div className="flex items-center bg-slate-800 rounded-xl p-1 border border-slate-700 space-x-1">
               {['fr', 'sw', 'en'].map(code => (
                 <button
                   key={code}
@@ -437,13 +440,14 @@ export default function GeminiLiveModal({
                     setSelectedLang(code);
                     if (setLang) setLang(code);
                   }}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  title={LANG_FLAGS[code]?.name || code}
+                  className={`px-3 py-1 text-base rounded-lg transition-all ${
                     selectedLang === code
-                      ? 'bg-emerald-600 text-white shadow-md'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-emerald-600 shadow-md scale-105'
+                      : 'hover:bg-slate-700 opacity-60 hover:opacity-100'
                   }`}
                 >
-                  {code.toUpperCase()}
+                  {LANG_FLAGS[code]?.flag || code.toUpperCase()}
                 </button>
               ))}
             </div>
@@ -528,7 +532,9 @@ export default function GeminiLiveModal({
                   {connectionStatus === 'connecting'
                     ? 'Connecting to Gemini Live WS...'
                     : connectionStatus === 'error'
-                    ? 'Connection Error - Check API Key'
+                    ? 'Connection Error - Check API Key / Network'
+                    : connectionStatus === 'closed'
+                    ? 'Live Connection Closed'
                     : isAiSpeaking
                     ? 'Gemini Live Speaking...'
                     : isMuted
@@ -540,8 +546,8 @@ export default function GeminiLiveModal({
           </div>
 
           {/* Right / Live Transcripts Panel */}
-          <div className="w-full md:w-1/2 flex flex-col bg-slate-900/60 p-4 relative">
-            <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-slate-800">
+          <div className="w-full md:w-1/2 flex flex-col bg-slate-900/60 p-4 relative overflow-hidden">
+            <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
               {transcripts.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 space-y-2">
                   <Radio className="w-10 h-10 text-emerald-500 animate-pulse" />
@@ -579,58 +585,40 @@ export default function GeminiLiveModal({
               <div ref={transcriptsEndRef} />
             </div>
 
-            {/* Bottom Controls & Input */}
-            <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
+            {/* Bottom Controls */}
+            <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <input
-                  type="text"
-                  value={textInput}
-                  onChange={(e) => setTextInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendTextMessage()}
-                  placeholder="Type a message or speak into your microphone..."
-                  className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-                />
                 <button
-                  onClick={handleSendTextMessage}
-                  disabled={!textInput.trim()}
-                  className="p-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl transition-all shadow-md"
+                  onClick={() => setIsMuted(!isMuted)}
+                  title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
+                  className={`p-3 rounded-2xl border transition-all ${
+                    isMuted
+                      ? 'bg-rose-900/40 border-rose-500/50 text-rose-300'
+                      : 'bg-emerald-900/40 border-emerald-500/50 text-emerald-300'
+                  }`}
                 >
-                  <Send className="w-4 h-4" />
+                  {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                </button>
+
+                <button
+                  onClick={toggleCameraStream}
+                  title={isVideoLive ? "Turn Off Camera" : "Turn On Camera"}
+                  className={`p-3 rounded-2xl border transition-all ${
+                    isVideoLive
+                      ? 'bg-emerald-900/40 border-emerald-500/50 text-emerald-300'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {isVideoLive ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
                 </button>
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setIsMuted(!isMuted)}
-                    className={`p-3 rounded-2xl border transition-all ${
-                      isMuted
-                        ? 'bg-rose-900/40 border-rose-500/50 text-rose-300'
-                        : 'bg-emerald-900/40 border-emerald-500/50 text-emerald-300'
-                    }`}
-                  >
-                    {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                  </button>
-
-                  <button
-                    onClick={toggleCameraStream}
-                    className={`p-3 rounded-2xl border transition-all ${
-                      isVideoLive
-                        ? 'bg-emerald-900/40 border-emerald-500/50 text-emerald-300'
-                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {isVideoLive ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-                  </button>
-                </div>
-
-                <button
-                  onClick={onClose}
-                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 transition-all"
-                >
-                  End Live Session
-                </button>
-              </div>
+              <button
+                onClick={onClose}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-xl shadow-md transition-all active:scale-95"
+              >
+                End Live Session
+              </button>
             </div>
 
           </div>
