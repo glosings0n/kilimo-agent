@@ -6,7 +6,6 @@ import {
   Video,
   VideoOff,
   Activity,
-  Check,
   Zap,
   Volume2,
   Camera,
@@ -17,8 +16,6 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
-import { voiceAgent } from '../utils/audioSynthesizer';
-import MODELS_CONFIG from '../config/models';
 
 export default function GeminiLiveModal({
   isOpen,
@@ -29,980 +26,598 @@ export default function GeminiLiveModal({
   onCommitDispatch
 }) {
   const [selectedLang, setSelectedLang] = useState(lang);
-  const [isAudioLive, setIsAudioLive] = useState(true);
   const [isVideoLive, setIsVideoLive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connecting' | 'connected' | 'speaking' | 'error'
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
-  const [interimSpeech, setInterimSpeech] = useState('');
   const [textInput, setTextInput] = useState('');
-
-  const [connectionStatus, setConnectionStatus] = useState('listening'); // 'connecting' | 'listening' | 'user_speaking' | 'processing' | 'speaking'
+  const [transcripts, setTranscripts] = useState([]);
   const [audioLevel, setAudioLevel] = useState([20, 45, 70, 90, 60, 30, 80, 50, 65, 40]);
-  const [detectedSpecimen, setDetectedSpecimen] = useState(null);
-  const [liveParams, setLiveParams] = useState({
-    crop: null,
-    volume_kg: null,
-    origin_depot: null,
-    destination_preference: null
-  });
 
   const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const analyserRef = useRef(null);
-  const micStreamRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const recognitionRef = useRef(null);
+  const videoStreamRef = useRef(null);
   const wsRef = useRef(null);
   const transcriptsEndRef = useRef(null);
-  const animationFrameRef = useRef(null);
+  const canvasRef = useRef(null);
+  const videoFrameTimerRef = useRef(null);
 
-  const silenceTimerRef = useRef(null);
-  const accumulatedSpeechRef = useRef('');
-  const isAiSpeakingRef = useRef(false);
-  const isProcessingRef = useRef(false);
-  const cooldownUntilRef = useRef(0);
-  const gainNodeRef = useRef(null);
+  // Audio capture references (16kHz PCM)
+  const inAudioCtxRef = useRef(null);
+  const micStreamRef = useRef(null);
+  const scriptProcessorRef = useRef(null);
 
-  const hasInitializedRef = useRef(false);
-  const isOpenRef = useRef(isOpen);
-  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+  // Audio playback references (24kHz PCM)
+  const outAudioCtxRef = useRef(null);
+  const nextPlayTimeRef = useRef(0);
+  const activeAudioSourcesRef = useRef([]);
+
   const isMutedRef = useRef(isMuted);
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
-  const isRecordingAudioRef = useRef(isRecordingAudio);
-  useEffect(() => { isRecordingAudioRef.current = isRecordingAudio; }, [isRecordingAudio]);
 
   useEffect(() => {
     setSelectedLang(lang);
   }, [lang]);
 
-  const getEffectiveBackend = useCallback(() => {
-    if (backendUrl && backendUrl.length > 0) return backendUrl;
-    if (typeof window !== 'undefined') {
-      if (window.location.hostname.includes('run.app')) {
-        return 'https://kilimo-backend-840262173056.us-central1.run.app';
-      }
-    }
-    return 'http://localhost:8000';
-  }, [backendUrl]);
-
-  const initialGreetingMap = {
-    sw: "Habari mkulima! Niko hewani kupitia Gemini Live API. Unaweza kueleza mazao yako kwa sauti na kufungua kamera yako kwa ukaguzi wa haraka.",
-    fr: "Bonjour cher producteur ! Je suis en direct via l'API Gemini Live. Parlez naturellement et activez votre caméra pour une inspection visuelle instantanée.",
-    en: "Hello farmer! I'm live on the bidirectional Gemini Live stream. Speak naturally and switch on your camera anytime for live multimodal harvest grading."
-  };
-
-  const [transcripts, setTranscripts] = useState([
-    { sender: 'gemini', text: initialGreetingMap[lang] || initialGreetingMap.en, time: "Live" }
-  ]);
-
+  // Scroll to bottom on new transcripts
   useEffect(() => {
     transcriptsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcripts, interimSpeech]);
+  }, [transcripts]);
 
-  const stopAllMedia = useCallback(() => {
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    voiceAgent.stop();
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+  const getEffectiveWsUrl = useCallback(() => {
+    let httpUrl = backendUrl;
+    if (!httpUrl && typeof window !== 'undefined') {
+      if (window.location.hostname.includes('run.app')) {
+        httpUrl = 'https://kilimo-backend-840262173056.us-central1.run.app';
+      } else {
+        httpUrl = 'http://localhost:8000';
+      }
     }
-    isAiSpeakingRef.current = false;
-    cooldownUntilRef.current = 0;
-    gainNodeRef.current = null;
+    const wsScheme = httpUrl.startsWith('https') ? 'wss' : 'ws';
+    const cleanHost = httpUrl.replace(/^https?:\/\//, '');
+    return `${wsScheme}://${cleanHost}/api/v1/live/ws`;
+  }, [backendUrl]);
+
+  // Stop all playback audio
+  const stopAllPlayback = useCallback(() => {
+    activeAudioSourcesRef.current.forEach(src => {
+      try { src.stop(); } catch (e) {}
+    });
+    activeAudioSourcesRef.current = [];
+    if (outAudioCtxRef.current) {
+      nextPlayTimeRef.current = outAudioCtxRef.current.currentTime;
+    }
     setIsAiSpeaking(false);
-    setIsProcessing(false);
-    setIsRecordingAudio(false);
+  }, []);
+
+  // Stop all media streams and WebSocket
+  const cleanupAllResources = useCallback(() => {
+    stopAllPlayback();
+
+    if (videoFrameTimerRef.current) {
+      clearInterval(videoFrameTimerRef.current);
+      videoFrameTimerRef.current = null;
+    }
+
+    if (scriptProcessorRef.current) {
+      try { scriptProcessorRef.current.disconnect(); } catch (e) {}
+      scriptProcessorRef.current = null;
+    }
+
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
+    }
+
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach(t => t.stop());
+      videoStreamRef.current = null;
+    }
+
+    if (inAudioCtxRef.current) {
+      try { inAudioCtxRef.current.close(); } catch (e) {}
+      inAudioCtxRef.current = null;
+    }
+
+    if (outAudioCtxRef.current) {
+      try { outAudioCtxRef.current.close(); } catch (e) {}
+      outAudioCtxRef.current = null;
+    }
 
     if (wsRef.current) {
       try { wsRef.current.close(); } catch (e) {}
       wsRef.current = null;
     }
 
-    if (mediaRecorderRef.current) {
-      try {
-        if (mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-        }
-      } catch (e) {}
-      mediaRecorderRef.current = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        track.stop();
-        track.enabled = false;
-      });
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    setConnectionStatus('connecting');
     setIsVideoLive(false);
+  }, [stopAllPlayback]);
 
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach(track => {
-        track.stop();
-        track.enabled = false;
-      });
-      micStreamRef.current = null;
-    }
+  // Play incoming 24kHz PCM chunk
+  const playPcm24kChunk = useCallback((base64PcmData) => {
+    try {
+      if (!outAudioCtxRef.current) {
+        outAudioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+      }
+      const ctx = outAudioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
 
-    if (recognitionRef.current) {
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.onend = null;
-      recognitionRef.current.onspeechstart = null;
-      try { recognitionRef.current.abort(); } catch (e) {}
-      try { recognitionRef.current.stop(); } catch (e) {}
-      recognitionRef.current = null;
-    }
+      // Convert Base64 -> Int16Array -> Float32Array
+      const rawString = atob(base64PcmData);
+      const len = rawString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = rawString.charCodeAt(i);
+      }
+      const int16Samples = new Int16Array(bytes.buffer);
+      const float32Samples = new Float32Array(int16Samples.length);
+      for (let i = 0; i < int16Samples.length; i++) {
+        float32Samples[i] = int16Samples[i] / 32768.0;
+      }
 
-    if (audioContextRef.current) {
-      try {
-        if (audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close();
+      const audioBuffer = ctx.createBuffer(1, float32Samples.length, 24000);
+      audioBuffer.getChannelData(0).set(float32Samples);
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+
+      const now = ctx.currentTime;
+      const playTime = Math.max(now, nextPlayTimeRef.current);
+      source.start(playTime);
+      nextPlayTimeRef.current = playTime + audioBuffer.duration;
+
+      activeAudioSourcesRef.current.push(source);
+      source.onended = () => {
+        activeAudioSourcesRef.current = activeAudioSourcesRef.current.filter(s => s !== source);
+        if (activeAudioSourcesRef.current.length === 0 && ctx.currentTime >= nextPlayTimeRef.current) {
+          setIsAiSpeaking(false);
         }
-      } catch (e) {}
-      audioContextRef.current = null;
-      analyserRef.current = null;
-    }
+      };
 
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
+      setIsAiSpeaking(true);
+    } catch (err) {
+      console.warn('[Gemini Live Audio Playback Error]:', err);
     }
   }, []);
 
-  const handleCloseLiveModal = useCallback(() => {
-    stopAllMedia();
-    onClose();
-  }, [onClose, stopAllMedia]);
-
-  const playAiResponse = useCallback((replyText, detectedLang, onComplete) => {
-    if (!isOpenRef.current) return;
-    isAiSpeakingRef.current = true;
-    setIsAiSpeaking(true);
-    setConnectionStatus('speaking');
-
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch (e) {}
-    }
-
-    const targetLang = detectedLang || selectedLang;
-
-    // Guaranteed safety watchdog to release lock if audio ends or hangs
-    const estWords = (replyText || '').split(' ').length;
-    const maxDurationMs = Math.max(4000, estWords * 450);
-    const safetyWatchdog = setTimeout(() => {
-      if (isAiSpeakingRef.current) {
-        console.warn("[Live Voice Watchdog]: Safety reset of AI speaking state.");
-        isAiSpeakingRef.current = false;
-        setIsAiSpeaking(false);
-        setConnectionStatus('listening');
-        if (isOpenRef.current && !isMutedRef.current && recognitionRef.current) {
-          try { recognitionRef.current.start(); } catch (e) {}
+  // Initialize Microphone 16kHz Raw PCM capture
+  const initMicrophoneCapture = useCallback(async (ws) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true
         }
-        if (onComplete) onComplete();
-      }
-    }, maxDurationMs);
+      });
+      micStreamRef.current = stream;
 
-    voiceAgent.speak(replyText, targetLang, () => {
-      clearTimeout(safetyWatchdog);
-      const cooldownMs = 400;
-      cooldownUntilRef.current = Date.now() + cooldownMs;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AudioCtx({ sampleRate: 16000 });
+      inAudioCtxRef.current = audioCtx;
 
-      setTimeout(() => {
-        isAiSpeakingRef.current = false;
-        setIsAiSpeaking(false);
-        setConnectionStatus('listening');
+      const source = audioCtx.createMediaStreamSource(stream);
+      const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+      scriptProcessorRef.current = processor;
 
-        if (isOpenRef.current && !isMutedRef.current && recognitionRef.current) {
-          try { recognitionRef.current.start(); } catch (e) {}
+      processor.onaudioprocess = (e) => {
+        if (isMutedRef.current || ws.readyState !== WebSocket.OPEN) return;
+
+        const float32 = e.inputBuffer.getChannelData(0);
+        // Convert Float32 -> Int16
+        const int16 = new Int16Array(float32.length);
+        let sum = 0;
+        for (let i = 0; i < float32.length; i++) {
+          const s = Math.max(-1, Math.min(1, float32[i]));
+          int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          sum += Math.abs(s);
         }
 
-        if (onComplete) onComplete();
-      }, cooldownMs);
-    });
-  }, [selectedLang]);
+        // Live visualizer level
+        const avg = sum / float32.length;
+        if (avg > 0.01) {
+          setAudioLevel(prev => prev.map(() => Math.floor(20 + Math.random() * 70)));
+        }
 
-  // Submit Farmer Input (Text or Audio Blob)
-  const submitFarmerPayload = useCallback(async ({ messageText = '', audioBlob = null, imageBlob = null }) => {
-    if (isProcessingRef.current || isAiSpeakingRef.current) {
+        // Base64 encode Int16 PCM bytes
+        const bytes = new Uint8Array(int16.buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const b64Pcm = btoa(binary);
+
+        ws.send(JSON.stringify({
+          type: 'audio_pcm',
+          data: b64Pcm
+        }));
+      };
+
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+    } catch (err) {
+      console.warn('[Microphone Live Access Error]:', err);
+    }
+  }, []);
+
+  // Initialize Camera Stream
+  const toggleCameraStream = useCallback(async () => {
+    if (isVideoLive) {
+      if (videoFrameTimerRef.current) {
+        clearInterval(videoFrameTimerRef.current);
+        videoFrameTimerRef.current = null;
+      }
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach(t => t.stop());
+        videoStreamRef.current = null;
+      }
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setIsVideoLive(false);
       return;
     }
-    if (!messageText.trim() && (!audioBlob || audioBlob.size < 300) && (!imageBlob || imageBlob.size < 300)) {
-      return;
-    }
-
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    accumulatedSpeechRef.current = '';
-    setInterimSpeech('');
-
-    let currentEffectiveLang = selectedLang;
-    if (messageText) {
-      const lower = messageText.toLowerCase();
-      if (/(salut|bonjour|bonsoir|coucou|je\s|j['’]ai|donne|quoi|faire|recolte|récolte|mais|maïs|manioc|café|haricots|tomates|patate|dépôt|depot|prix|combien|kilos|sacs|tonnes|merci|vente|culture)/i.test(lower)) {
-        currentEffectiveLang = 'fr';
-      } else if (/(habari|jambo|hujambo|mambo|niaje|sasa|vipi|asante|mahindi|muhogo|kahawa|maharagwe|nyanya|gunia|magunia|ghala|soko|bei|safari|kilo|tani|karibu)/i.test(lower)) {
-        currentEffectiveLang = 'sw';
-      } else if (/(hello|hi|hey|good\s|morning|evening|afternoon|i\s+have|crop|harvest|maize|cassava|coffee|beans|tomatoes|depot|price|market|bags|tons|kilograms)/i.test(lower)) {
-        currentEffectiveLang = 'en';
-      }
-
-      if (currentEffectiveLang !== selectedLang) {
-        setSelectedLang(currentEffectiveLang);
-        if (setLang) setLang(currentEffectiveLang);
-      }
-
-      setTranscripts(prev => [
-        ...prev,
-        { sender: 'farmer', text: messageText, time: 'Live' }
-      ]);
-    } else if (audioBlob && audioBlob.size > 0) {
-      setTranscripts(prev => [
-        ...prev,
-        { sender: 'farmer', text: '🎤 [Voice Note Audio Recorded]', time: 'Live' }
-      ]);
-    }
-
-    setIsProcessing(true);
-    isProcessingRef.current = true;
-    setConnectionStatus('processing');
-
-    const watchdog = setTimeout(() => {
-      if (isProcessingRef.current) {
-        console.warn("[Live Submit Watchdog]: Request timed out, releasing lock.");
-        isProcessingRef.current = false;
-        setIsProcessing(false);
-        setConnectionStatus('listening');
-      }
-    }, 12000);
 
     try {
-      const activeBackend = getEffectiveBackend();
-      const formData = new FormData();
-      formData.append('session_id', 'live_session_' + Date.now());
-      formData.append('user_id', 'live_farmer');
-      formData.append('lang', currentEffectiveLang);
-      formData.append('message', messageText || '');
-      formData.append('current_params', JSON.stringify(liveParams));
-
-      if (audioBlob && audioBlob.size > 0) {
-        formData.append('audio', audioBlob, 'live_voice.webm');
-      }
-      if (imageBlob && imageBlob.size > 0) {
-        formData.append('image', imageBlob, 'live_harvest.jpg');
-      }
-
-      const response = await fetch(`${activeBackend}/api/v1/live/chat`, {
-        method: 'POST',
-        body: formData
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'environment' }
       });
+      videoStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsVideoLive(true);
 
-      if (response.ok) {
-        const data = await response.json();
-        const detectedBackendLang = data.detected_language || currentEffectiveLang;
-        if (detectedBackendLang && detectedBackendLang !== currentEffectiveLang) {
-          setSelectedLang(detectedBackendLang);
-          if (setLang) setLang(detectedBackendLang);
-          currentEffectiveLang = detectedBackendLang;
-        }
+      // Stream JPEG frame at 1fps
+      videoFrameTimerRef.current = setInterval(() => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        if (!videoRef.current || !canvasRef.current) return;
 
-        const reply = data.reply || (currentEffectiveLang === 'fr' ? "Taarifa bien reçue." : currentEffectiveLang === 'sw' ? "Taarifa imerekodiwa." : "Information recorded.");
+        const videoEl = videoRef.current;
+        const canvas = canvasRef.current;
+        if (videoEl.videoWidth === 0) return;
 
-        if (data.action === "TERMINATE_SESSION" || data.is_terminated) {
-          setTranscripts(prev => [
-            ...prev,
-            { sender: 'gemini', text: `🛑 ${reply}`, time: 'Live' }
-          ]);
-          playAiResponse(reply, currentEffectiveLang, () => {
-            stopAllMedia();
-            setTimeout(() => { onClose(); }, 1200);
-          });
-          return;
-        }
+        canvas.width = 320;
+        canvas.height = 240;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+        const b64Jpeg = dataUrl.split(',')[1];
 
-        if (data.extracted_params) {
-          setLiveParams(prev => ({
-            ...prev,
-            ...data.extracted_params
+        if (b64Jpeg) {
+          wsRef.current.send(JSON.stringify({
+            type: 'image_frame',
+            data: b64Jpeg
           }));
         }
-
-        setTranscripts(prev => [
-          ...prev,
-          { sender: 'gemini', text: reply, time: 'Live' }
-        ]);
-
-        playAiResponse(reply, currentEffectiveLang);
-      } else {
-        throw new Error("Live endpoint response error");
-      }
+      }, 1000);
     } catch (err) {
-      console.warn("[Live Chat API Fallback]:", err);
-      const fallbackReply = currentEffectiveLang === 'sw'
-        ? `Nimepokea sauti yako. Tafadhali taja zao lako na uzito (KG).`
-        : currentEffectiveLang === 'fr'
-        ? `Vocal bien reçu. Veuillez préciser votre récolte et le volume en KG.`
-        : `Voice note received. Please specify your crop and volume in KG.`;
-
-      setTranscripts(prev => [
-        ...prev,
-        { sender: 'gemini', text: fallbackReply, time: 'Live' }
-      ]);
-
-      playAiResponse(fallbackReply, currentEffectiveLang);
-    } finally {
-      clearTimeout(watchdog);
-      setIsProcessing(false);
-      isProcessingRef.current = false;
-    }
-  }, [getEffectiveBackend, liveParams, onClose, playAiResponse, selectedLang, setLang, stopAllMedia]);
-
-  // Audio Recording Helper
-  const startAudioRecording = useCallback(() => {
-    if (!micStreamRef.current || isRecordingAudio) return;
-    try {
-      audioChunksRef.current = [];
-      const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? { mimeType: 'audio/webm;codecs=opus' }
-        : MediaRecorder.isTypeSupported('audio/webm')
-        ? { mimeType: 'audio/webm' }
-        : {};
-
-      const mediaRecorder = new MediaRecorder(micStreamRef.current, options);
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.start(100);
-      mediaRecorderRef.current = mediaRecorder;
-      setIsRecordingAudio(true);
-    } catch (e) {
-      console.warn("[MediaRecorder Start Error]:", e);
-    }
-  }, [isRecordingAudio]);
-
-  const stopAudioRecording = useCallback(() => {
-    return new Promise((resolve) => {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.onstop = () => {
-          setIsRecordingAudio(false);
-          let audioBlob = null;
-          if (audioChunksRef.current.length > 0) {
-            const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
-            audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-            audioChunksRef.current = [];
-          }
-          resolve(audioBlob);
-        };
-        try {
-          mediaRecorderRef.current.stop();
-        } catch (e) {
-          setIsRecordingAudio(false);
-          resolve(null);
-        }
-      } else {
-        setIsRecordingAudio(false);
-        resolve(null);
-      }
-    });
-  }, []);
-
-  const startMicrophoneAndSpeech = useCallback(async () => {
-    setIsInitializing(true);
-    setConnectionStatus('connecting');
-
-    let micStream = null;
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true },
-          channelCount: 1,
-          sampleRate: 16000
-        },
-        video: false
-      });
-    } catch (micErr) {
-      console.warn("[Live Mic Permission Error]:", micErr);
-      setIsInitializing(false);
-      setConnectionStatus('listening');
-      setTranscripts(prev => [
-        ...prev,
-        { sender: 'gemini', text: selectedLang === 'fr'
-          ? '⚠️ Impossible d\'accéder au microphone. Veuillez autoriser l\'accès.'
-          : selectedLang === 'sw'
-          ? '⚠️ Haiwezekani kupata maikrofoni. Tafadhali ruhusu ufikiaji.'
-          : '⚠️ Could not access microphone. Please grant permission.', time: 'Live' }
-      ]);
-      return;
-    }
-
-    if (!isOpenRef.current) {
-      micStream.getTracks().forEach(t => t.stop());
-      return;
-    }
-
-    micStreamRef.current = micStream;
-
-    // Web Audio Visualizer
-    try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioCtx.createMediaStreamSource(micStream);
-      const gainNode = audioCtx.createGain();
-      gainNode.gain.value = 1.0;
-      gainNodeRef.current = gainNode;
-
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 32;
-
-      source.connect(gainNode);
-      gainNode.connect(analyser);
-
-      audioContextRef.current = audioCtx;
-      analyserRef.current = analyser;
-
-      const updateFrequencyBars = () => {
-        if (!analyserRef.current) {
-          animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
-          return;
-        }
-
-        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-        analyserRef.current.getByteFrequencyData(dataArray);
-
-        const bars = [];
-        const step = Math.floor(dataArray.length / 10) || 1;
-        let sum = 0;
-        for (let i = 0; i < 10; i++) {
-          const val = dataArray[i * step] || 0;
-          sum += val;
-          const pct = Math.max(15, Math.min(100, Math.floor((val / 255) * 100) + 15));
-          bars.push(pct);
-        }
-        setAudioLevel(bars);
-
-        animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
-      };
-
-      updateFrequencyBars();
-    } catch (vizErr) {
-      console.warn("[Audio Visualizer Error]:", vizErr);
-    }
-
-    // SpeechRecognition initialization (if supported)
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      try {
-        if (recognitionRef.current) {
-          try { recognitionRef.current.abort(); } catch (e) {}
-        }
-
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.maxAlternatives = 1;
-        recognition.lang = selectedLang === 'fr' ? 'fr-FR' : selectedLang === 'sw' ? 'sw-TZ' : 'en-US';
-
-        recognition.onspeechstart = () => {
-          if (isAiSpeakingRef.current) {
-            voiceAgent.stop();
-            if (typeof window !== 'undefined' && window.speechSynthesis) {
-              window.speechSynthesis.cancel();
-            }
-            isAiSpeakingRef.current = false;
-            setIsAiSpeaking(false);
-          }
-          startAudioRecording();
-        };
-
-        recognition.onresult = (event) => {
-          if (isMutedRef.current || isAiSpeakingRef.current || Date.now() < cooldownUntilRef.current) {
-            return;
-          }
-
-          let currentInterim = '';
-          let currentFinal = '';
-
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            const res = event.results[i];
-            const text = res[0].transcript;
-            if (res.isFinal) {
-              currentFinal += text;
-            } else {
-              currentInterim += text;
-            }
-          }
-
-          if (currentInterim.trim()) {
-            setInterimSpeech(currentInterim.trim());
-            accumulatedSpeechRef.current = currentInterim.trim();
-            setConnectionStatus('user_speaking');
-
-            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = setTimeout(async () => {
-              if (accumulatedSpeechRef.current && accumulatedSpeechRef.current.trim().length >= 2 && !isAiSpeakingRef.current && !isProcessingRef.current) {
-                const textToCommit = accumulatedSpeechRef.current.trim();
-                accumulatedSpeechRef.current = '';
-                setInterimSpeech('');
-                const recordedAudio = await stopAudioRecording();
-                submitFarmerPayload({ messageText: textToCommit, audioBlob: recordedAudio });
-              }
-            }, 1400);
-          }
-
-          if (currentFinal.trim()) {
-            if (silenceTimerRef.current) {
-              clearTimeout(silenceTimerRef.current);
-              silenceTimerRef.current = null;
-            }
-            const finalText = currentFinal.trim();
-            accumulatedSpeechRef.current = '';
-            setInterimSpeech('');
-            stopAudioRecording().then(recordedAudio => {
-              if (!isAiSpeakingRef.current && !isProcessingRef.current) {
-                submitFarmerPayload({ messageText: finalText, audioBlob: recordedAudio });
-              }
-            });
-          }
-        };
-
-        recognition.onend = () => {
-          if (isOpenRef.current && !isMutedRef.current && !isAiSpeakingRef.current && !isProcessingRef.current && Date.now() >= cooldownUntilRef.current && recognitionRef.current) {
-            try { recognitionRef.current.start(); } catch (e) {}
-          }
-        };
-
-        try { recognition.start(); } catch (e) {}
-        recognitionRef.current = recognition;
-      } catch (err) {
-        console.warn("[Speech Recognition Init Error]:", err);
-      }
-    }
-
-    setIsInitializing(false);
-    setConnectionStatus('listening');
-  }, [selectedLang, startAudioRecording, stopAudioRecording, submitFarmerPayload]);
-
-  const toggleCamera = async () => {
-    if (isVideoLive) {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => {
-          track.stop();
-          track.enabled = false;
-        });
-        streamRef.current = null;
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
+      console.warn('[Camera Access Error]:', err);
       setIsVideoLive(false);
-    } else {
-      try {
-        const camStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
-        streamRef.current = camStream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = camStream;
-        }
-        setIsVideoLive(true);
-        setDetectedSpecimen({
-          crop: selectedLang === 'fr' ? "Maïs (Zea mays)" : selectedLang === 'sw' ? "Mahindi (Zea mays)" : "Maize (Zea mays)",
-          grade: "EAC Grade A (12.4% Moisture)",
-          recommendation: selectedLang === 'fr'
-            ? "Grain intact, aucun parasite détecté. Conforme à l'exportation."
-            : selectedLang === 'sw'
-            ? "Nafaka safi, unyevu uko sawa. Tayari kwa soko la EAC."
-            : "Intact kernels, moisture compliant. Grade A export ready."
-        });
-      } catch (err) {
-        console.warn("[Live Camera Error]:", err);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (isVideoLive && videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
     }
   }, [isVideoLive]);
 
+  // Establish WebSocket Connection
   useEffect(() => {
-    if (isOpen) {
-      if (!hasInitializedRef.current) {
-        hasInitializedRef.current = true;
-        startMicrophoneAndSpeech();
-      }
-    } else {
-      hasInitializedRef.current = false;
-      stopAllMedia();
-    }
-    return () => {
-      stopAllMedia();
+    if (!isOpen) return;
+
+    cleanupAllResources();
+    setConnectionStatus('connecting');
+
+    const wsUrl = getEffectiveWsUrl();
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnectionStatus('connected');
+      initMicrophoneCapture(ws);
     };
-  }, [isOpen, startMicrophoneAndSpeech, stopAllMedia]);
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.loads(event.data);
+
+        if (payload.type === 'audio_chunk' && payload.data) {
+          playPcm24kChunk(payload.data);
+        } else if (payload.type === 'input_transcription' && payload.text) {
+          setTranscripts(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.sender === 'farmer' && last.isInterim) {
+              return [...prev.slice(0, -1), { sender: 'farmer', text: last.text + ' ' + payload.text, time: 'Live' }];
+            }
+            return [...prev, { sender: 'farmer', text: payload.text, time: 'Live' }];
+          });
+        } else if (payload.type === 'output_transcription' && payload.text) {
+          setTranscripts(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.sender === 'gemini' && last.isInterim) {
+              return [...prev.slice(0, -1), { sender: 'gemini', text: last.text + payload.text, time: 'Live' }];
+            }
+            return [...prev, { sender: 'gemini', text: payload.text, time: 'Live', isInterim: true }];
+          });
+        } else if (payload.type === 'interrupted') {
+          stopAllPlayback();
+        } else if (payload.type === 'turn_complete') {
+          setTranscripts(prev => prev.map(t => ({ ...t, isInterim: false })));
+        } else if (payload.type === 'error') {
+          console.error('[Gemini Live Server Error]:', payload.message);
+        }
+      } catch (e) {
+        console.warn('[WebSocket Payload Parse Error]:', e);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.warn('[WebSocket Live Connection Error]:', err);
+      setConnectionStatus('error');
+    };
+
+    ws.onclose = () => {
+      setConnectionStatus('connecting');
+    };
+
+    return () => {
+      cleanupAllResources();
+    };
+  }, [cleanupAllResources, getEffectiveWsUrl, initMicrophoneCapture, isOpen, playPcm24kChunk, stopAllPlayback]);
+
+  // Send Text Message over WebSocket
+  const handleSendTextMessage = useCallback(() => {
+    if (!textInput.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    const msg = textInput.trim();
+    setTextInput('');
+    setTranscripts(prev => [...prev, { sender: 'farmer', text: msg, time: 'Live' }]);
+
+    wsRef.current.send(JSON.stringify({
+      type: 'text_message',
+      text: msg
+    }));
+  }, [textInput]);
 
   if (!isOpen) return null;
 
   return (
-    <div
-      onClick={(e) => { if (e.target === e.currentTarget) handleCloseLiveModal(); }}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in"
-    >
-      <div className="relative w-full max-w-2xl bg-[#090D16] border border-slate-800 rounded-3xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-fade-in">
+      <canvas ref={canvasRef} className="hidden" />
+
+      <div className="relative w-full max-w-4xl h-[90vh] bg-slate-900 border border-emerald-500/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
         
-        {/* Header Bar */}
-        <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2">
-          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center font-bold shrink-0">
-              <GeminiIcon className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
+        {/* Top Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur-sm z-10">
+          <div className="flex items-center space-x-3">
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 shadow-lg shadow-emerald-500/20">
+              <GeminiIcon className="w-6 h-6 text-white animate-pulse" />
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
             </div>
-            <div className="min-w-0">
+            <div>
               <div className="flex items-center space-x-2">
-                <h3 className="text-sm sm:text-base font-extrabold text-white tracking-tight truncate">
-                  Gemini Live Multimodal Stream
+                <h3 className="font-bold text-lg bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+                  Gemini 3.1 Flash Live
                 </h3>
-                <span className="flex sm:inline-flex items-center justify-center px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold shrink-0 gap-1.5">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-                  </span>
-                  <span>{MODELS_CONFIG.defaultModelName}</span>
-                </span>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-mono font-bold shrink-0 border border-emerald-500/20">
-                  Zero Typing
+                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Bidirectional Audio & Vision
                 </span>
               </div>
-              <p className="text-[11px] sm:text-xs text-slate-400 truncate">
-                {isInitializing 
-                  ? (selectedLang === 'fr' ? 'Initialisation...' : selectedLang === 'sw' ? 'Inaunganisha...' : 'Connecting...')
-                  : (selectedLang === 'fr' ? 'Flux vocal bidirectionnel actif' : selectedLang === 'sw' ? 'Mtiririko wa sauti hai' : 'Bidirectional voice stream active')}
+              <p className="text-xs text-slate-400">
+                Low-latency voice dialogue & real-time crop grading
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2 shrink-0">
-            <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedLang('fr');
-                  if (setLang) setLang('fr');
-                  setTranscripts(prev => [
-                    ...prev,
-                    { sender: 'gemini', text: initialGreetingMap.fr, time: 'Live' }
-                  ]);
-                }}
-                className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                  selectedLang === 'fr' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
-                }`}
-                title="Français"
-              >
-                FR
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedLang('sw');
-                  if (setLang) setLang('sw');
-                  setTranscripts(prev => [
-                    ...prev,
-                    { sender: 'gemini', text: initialGreetingMap.sw, time: 'Live' }
-                  ]);
-                }}
-                className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                  selectedLang === 'sw' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
-                }`}
-                title="Kiswahili"
-              >
-                SW
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedLang('en');
-                  if (setLang) setLang('en');
-                  setTranscripts(prev => [
-                    ...prev,
-                    { sender: 'gemini', text: initialGreetingMap.en, time: 'Live' }
-                  ]);
-                }}
-                className={`px-2 py-1 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                  selectedLang === 'en' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
-                }`}
-                title="English"
-              >
-                EN
-              </button>
+          <div className="flex items-center space-x-3">
+            {/* Language Selector */}
+            <div className="flex items-center bg-slate-800 rounded-xl p-1 border border-slate-700">
+              {['fr', 'sw', 'en'].map(code => (
+                <button
+                  key={code}
+                  onClick={() => {
+                    setSelectedLang(code);
+                    if (setLang) setLang(code);
+                  }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                    selectedLang === code
+                      ? 'bg-emerald-500 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {code.toUpperCase()}
+                </button>
+              ))}
             </div>
 
             <button
-              onClick={handleCloseLiveModal}
-              className="p-1.5 sm:p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
-              title="Close Live modal"
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
             >
-              <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              <X className="w-6 h-6" />
             </button>
           </div>
         </div>
 
-        {/* Live Audio / Video Display */}
-        <div className="p-6 bg-slate-950 border-b border-slate-800 flex flex-col items-center justify-center relative min-h-[220px]">
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
           
-          {isVideoLive ? (
-            <div className="relative w-full max-w-md aspect-video bg-black rounded-2xl overflow-hidden border border-emerald-500/50">
+          {/* Left / Vision Feed */}
+          <div className="w-full md:w-1/2 p-4 flex flex-col items-center justify-center bg-slate-950/60 border-b md:border-b-0 md:border-r border-slate-800 relative">
+            <div className="relative w-full h-full max-h-[380px] rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center shadow-inner group">
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
                 muted
-                className="w-full h-full object-cover"
+                className={`w-full h-full object-cover transition-opacity duration-300 ${
+                  isVideoLive ? 'opacity-100' : 'opacity-0 absolute'
+                }`}
               />
-              <div className="absolute inset-0 border-2 border-dashed border-emerald-400/70 rounded-2xl pointer-events-none flex flex-col justify-between p-3">
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-emerald-400 text-[10px] font-mono font-bold flex items-center gap-1.5">
-                    <Camera className="w-3 h-3 text-emerald-400" />
-                    Live Gemini vision feed
-                  </span>
-                </div>
 
-                {detectedSpecimen && (
-                  <div className="bg-slate-950/90 backdrop-blur-md border border-emerald-500/50 p-2.5 rounded-xl text-left space-y-1">
-                    <div className="text-xs font-extrabold text-emerald-300 flex items-center justify-between">
-                      <span>{detectedSpecimen.crop}</span>
-                      <span className="text-[10px] text-amber-300 font-mono">{detectedSpecimen.grade}</span>
-                    </div>
-                    <div className="text-[10px] text-slate-300 line-clamp-1">
-                      {detectedSpecimen.recommendation}
-                    </div>
+              {!isVideoLive && (
+                <div className="flex flex-col items-center text-center p-6 space-y-3">
+                  <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 shadow-inner">
+                    <Camera className="w-8 h-8 text-slate-500" />
                   </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="text-center space-y-4 py-4 w-full max-w-md">
-              <div className="relative inline-flex items-center justify-center">
-                <button
-                  type="button"
-                  onMouseDown={startAudioRecording}
-                  onMouseUp={stopAudioRecording}
-                  onTouchStart={startAudioRecording}
-                  onTouchEnd={stopAudioRecording}
-                  onClick={() => {
-                    if (isAiSpeaking) {
-                      voiceAgent.stop();
-                      if (typeof window !== 'undefined' && window.speechSynthesis) {
-                        window.speechSynthesis.cancel();
-                      }
-                      setIsAiSpeaking(false);
-                      setConnectionStatus('listening');
-                    } else {
-                      setIsMuted(!isMuted);
-                    }
-                  }}
-                  className={`w-20 h-20 rounded-full flex items-center justify-center relative z-10 transition-all cursor-pointer ${
-                    isInitializing
-                      ? 'bg-slate-800 text-amber-400 border border-amber-500/40 animate-pulse'
-                      : isAiSpeaking 
-                      ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/25 scale-105 animate-pulse' 
-                      : isProcessing
-                      ? 'bg-amber-500 text-slate-950 animate-pulse'
-                      : isRecordingAudio
-                      ? 'bg-rose-600 text-white animate-bounce scale-110 shadow-lg shadow-rose-600/50'
-                      : isMuted
-                      ? 'bg-rose-500 text-white'
-                      : 'bg-emerald-500 text-slate-950 hover:scale-105 shadow-lg shadow-emerald-500/25'
-                  }`}
-                  title={isAiSpeaking ? "Tap to Interrupt" : "Hold to Record Voice or Tap to Mute"}
-                >
-                  {isInitializing ? (
-                    <Loader2 className="w-9 h-9 animate-spin stroke-[2.2]" />
-                  ) : isProcessing ? (
-                    <Loader2 className="w-9 h-9 animate-spin stroke-[2.2]" />
-                  ) : isAiSpeaking ? (
-                    <Volume2 className="w-9 h-9 stroke-[2.2]" />
-                  ) : isRecordingAudio ? (
-                    <Mic className="w-9 h-9 stroke-[2.2] animate-pulse" />
-                  ) : isMuted ? (
-                    <MicOff className="w-9 h-9 stroke-[2.2]" />
-                  ) : (
-                    <Mic className="w-9 h-9 stroke-[2.2]" />
-                  )}
-                </button>
-              </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-300">Live Camera Feed Offline</p>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs">
+                      Enable your camera for real-time visual inspection & AI grading of your harvest.
+                    </p>
+                  </div>
+                  <button
+                    onClick={toggleCameraStream}
+                    className="mt-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-600/20 transition-all"
+                  >
+                    <Video className="w-4 h-4" />
+                    <span>Turn On Camera</span>
+                  </button>
+                </div>
+              )}
 
-              {/* Dynamic Equalizer Bar */}
-              <div className="flex items-center justify-center gap-1.5 h-10">
-                {audioLevel.map((lvl, idx) => (
+              {isVideoLive && (
+                <div className="absolute top-3 left-3 flex items-center space-x-2 bg-slate-950/70 backdrop-blur-md px-3 py-1.5 rounded-full border border-emerald-500/30">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                  <span className="text-xs font-medium text-emerald-300">Live Vision Feed (1 FPS)</span>
+                </div>
+              )}
+            </div>
+
+            {/* Audio Live Waveform Visualizer */}
+            <div className="w-full mt-4 bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col items-center justify-center space-y-2">
+              <div className="flex items-center space-x-1 h-12 px-4">
+                {audioLevel.map((height, idx) => (
                   <div
                     key={idx}
-                    className={`w-1.5 rounded-full transition-all duration-100 ${
-                      isAiSpeaking 
-                        ? 'bg-cyan-400' 
-                        : isProcessing
-                        ? 'bg-amber-400'
-                        : isRecordingAudio
-                        ? 'bg-rose-400'
-                        : isMuted 
-                        ? 'bg-slate-800' 
-                        : 'bg-emerald-400'
+                    className={`w-1.5 rounded-full transition-all duration-150 ${
+                      isAiSpeaking
+                        ? 'bg-gradient-to-t from-teal-500 to-emerald-400'
+                        : isMuted
+                        ? 'bg-slate-700'
+                        : 'bg-emerald-500/60'
                     }`}
-                    style={{ height: `${lvl}%` }}
+                    style={{
+                      height: isMuted ? '8px' : `${Math.max(8, isAiSpeaking ? height * 1.2 : height * 0.6)}px`
+                    }}
                   />
                 ))}
               </div>
 
-              <div className="space-y-1.5">
-                <div className="text-sm font-extrabold text-white tracking-wide flex items-center justify-center gap-2">
-                  {isInitializing ? (
-                    <span className="text-amber-300 flex items-center gap-1.5">
-                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                      {selectedLang === 'fr' ? "Connexion..." : selectedLang === 'sw' ? "Inaunganisha..." : "Connecting..."}
-                    </span>
-                  ) : isAiSpeaking ? (
-                    <span className="text-cyan-300 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 animate-spin text-cyan-400" />
-                      {selectedLang === 'fr' ? "Gemini répond..." : selectedLang === 'sw' ? "Gemini anajibu..." : "Gemini speaking..."}
-                    </span>
-                  ) : isProcessing ? (
-                    <span className="text-amber-300 flex items-center gap-1.5">
-                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                      {selectedLang === 'fr' ? "Analyse Gemini..." : selectedLang === 'sw' ? "Inachakata..." : "Gemini processing..."}
-                    </span>
-                  ) : isRecordingAudio ? (
-                    <span className="text-rose-400 flex items-center gap-1.5 font-mono">
-                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                      {selectedLang === 'fr' ? "Enregistrement en cours..." : selectedLang === 'sw' ? "Inarekodi sauti..." : "Recording voice audio..."}
-                    </span>
-                  ) : isMuted ? (
-                    <span className="text-rose-400">{selectedLang === 'fr' ? "Micro muet" : selectedLang === 'sw' ? "Maikrofoni imezimwa" : "Muted"}</span>
-                  ) : (
-                    <span className="text-emerald-300 flex items-center gap-1.5">
-                      <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-                      {selectedLang === 'fr' ? "Prêt • Parlez ou maintenez le bouton" : selectedLang === 'sw' ? "Tayari • Ongea au shikilia batani" : "Ready • Speak naturally or hold button"}
-                    </span>
-                  )}
-                </div>
-
-                {interimSpeech && (
-                  <div className="pt-2 flex justify-center animate-in fade-in duration-150">
-                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-lg">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                      <span>"{interimSpeech}"</span>
-                    </div>
-                  </div>
-                )}
+              <div className="flex items-center space-x-2 text-xs text-slate-400">
+                <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                <span>
+                  {connectionStatus === 'connecting'
+                    ? 'Connecting to Gemini Live WS...'
+                    : connectionStatus === 'error'
+                    ? 'Connection Error - Check API Key'
+                    : isAiSpeaking
+                    ? 'Gemini Live Speaking...'
+                    : isMuted
+                    ? 'Microphone Muted'
+                    : 'Listening to your voice...'}
+                </span>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Live Conversation Stream Box */}
-        <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-3 bg-[#0F172A]/80 min-h-[160px] max-h-[220px]">
-          {transcripts.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex items-start space-x-2.5 ${
-                msg.sender === 'farmer' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              {msg.sender === 'gemini' && (
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-0.5">
-                  <GeminiIcon className="w-3.5 h-3.5 text-emerald-400" />
-                </div>
-              )}
-              <div
-                className={`p-3 rounded-2xl max-w-[82%] text-xs leading-relaxed ${
-                  msg.sender === 'farmer'
-                    ? 'bg-emerald-600 text-white font-medium rounded-tr-xs'
-                    : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-xs'
-                }`}
-              >
-                {msg.text}
-              </div>
-            </div>
-          ))}
-          <div ref={transcriptsEndRef} />
-        </div>
-
-        {/* Footer Voice Session Controls */}
-        <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2">
-          <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800/80 text-xs text-slate-300">
-            <div className="flex items-center space-x-2 truncate">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
-              <span className="truncate font-medium">
-                {selectedLang === 'fr'
-                  ? "Interaction 100% Vocale Active — Parlez naturellement dans le microphone"
-                  : selectedLang === 'sw'
-                  ? "Sauti Ipo Wazi — Zungumza kawaida kwenye maikrofoni"
-                  : "100% Voice Mode Active — Speak naturally into the microphone"}
-              </span>
-            </div>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-mono font-bold shrink-0">
-              Live
-            </span>
           </div>
 
-            <div className="flex items-center justify-between gap-2 pt-1">
-              <button
-                type="button"
-                onClick={toggleCamera}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-xs transition cursor-pointer whitespace-nowrap ${
-                  isVideoLive
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-                }`}
-              >
-                {isVideoLive ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4 text-emerald-400" />}
-                <span>{isVideoLive ? "Stop Camera" : "Live Camera"}</span>
-              </button>
+          {/* Right / Live Transcripts Panel */}
+          <div className="w-full md:w-1/2 flex flex-col bg-slate-900/40 p-4 relative">
+            <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-slate-800">
+              {transcripts.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 space-y-2">
+                  <Radio className="w-10 h-10 text-emerald-500/40 animate-pulse" />
+                  <p className="text-sm font-medium">Bidirectional Audio Active</p>
+                  <p className="text-xs max-w-xs">
+                    Start speaking in Swahili, French, or English. Transcripts will stream live below.
+                  </p>
+                </div>
+              )}
 
-              <button
-                type="button"
-                onClick={() => setIsMuted(!isMuted)}
-                className={`p-2 rounded-xl transition cursor-pointer ${
-                  isMuted
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-                }`}
-              >
-                {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-emerald-400" />}
-              </button>
+              {transcripts.map((t, index) => (
+                <div
+                  key={index}
+                  className={`flex flex-col ${
+                    t.sender === 'farmer' ? 'items-end' : 'items-start'
+                  }`}
+                >
+                  <div className="flex items-center space-x-1.5 mb-1 text-[11px] text-slate-400 font-medium">
+                    <span>{t.sender === 'farmer' ? '👨‍🌾 Farmer' : '✨ Gemini Live'}</span>
+                    <span>•</span>
+                    <span>{t.time}</span>
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  stopAllMedia();
-                  voiceAgent.stop();
-                  if (onCommitDispatch) {
-                    onCommitDispatch(liveParams);
-                  }
-                  onClose();
-                }}
-                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition flex items-center space-x-2 cursor-pointer whitespace-nowrap"
-              >
-                <Check className="w-4 h-4" />
-                <span>Commit</span>
-              </button>
+                  <div
+                    className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                      t.sender === 'farmer'
+                        ? 'bg-emerald-600 text-white rounded-tr-none shadow-md'
+                        : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-tl-none shadow-md'
+                    }`}
+                  >
+                    {t.text}
+                  </div>
+                </div>
+              ))}
+              <div ref={transcriptsEndRef} />
             </div>
+
+            {/* Bottom Controls & Input */}
+            <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendTextMessage()}
+                  placeholder="Type a message or just speak naturally..."
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+                <button
+                  onClick={handleSendTextMessage}
+                  disabled={!textInput.trim()}
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl transition-all shadow-md shadow-emerald-600/20"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setIsMuted(!isMuted)}
+                    className={`p-3 rounded-2xl border transition-all ${
+                      isMuted
+                        ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+                        : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                    }`}
+                  >
+                    {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  </button>
+
+                  <button
+                    onClick={toggleCameraStream}
+                    className={`p-3 rounded-2xl border transition-all ${
+                      isVideoLive
+                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {isVideoLive ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+                  </button>
+                </div>
+
+                <button
+                  onClick={onClose}
+                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 transition-all"
+                >
+                  End Live Session
+                </button>
+              </div>
+            </div>
+
+          </div>
         </div>
+
       </div>
     </div>
   );

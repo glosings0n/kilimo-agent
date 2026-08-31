@@ -7,7 +7,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File,
 from pydantic import BaseModel
 
 from agent import process_conversational_intake
-from tools.multimodal_grading import validate_and_transcribe_voice_note, grade_and_validate_harvest_image
+from tools.multimodal_grading import validate_and_transcribe_voice_note
 from config.models import MODEL_CONFIG
 
 router = APIRouter()
@@ -26,7 +26,7 @@ def get_live_config():
     """Returns Gemini Live connection parameters, supported modalities, and model config."""
     return {
         "status": "ONLINE",
-        "live_model": MODEL_CONFIG["live_model"],
+        "live_model": "gemini-3.1-flash-live-preview",
         "supported_modalities": ["audio/pcm", "audio/webm", "image/jpeg", "text/plain"],
         "supported_languages": ["fr", "sw", "en"],
         "features": {
@@ -50,7 +50,7 @@ async def live_stream_chat(
     image: Optional[UploadFile] = File(None)
 ):
     """
-    Bidirectional Live Streaming Endpoint (Supports JSON and Multipart FormData with audio/image uploads).
+    Fallback REST Endpoint for Single-Turn Voice/Text/Image Queries.
     """
     target_msg = ""
     target_session_id = "live_session_1"
@@ -126,108 +126,166 @@ async def live_stream_chat(
 @router.websocket("/ws")
 async def live_websocket_endpoint(websocket: WebSocket):
     """
-    Real-Time Gemini Live Bidirectional WebSocket Endpoint.
-    Receives incoming audio/text/image frames and streams back live transcriptions & AI responses.
+    Native Gemini Live API Bidirectional Streaming Proxy Endpoint over WebSockets.
+    Proxies 16kHz PCM audio & JPEG camera frames to Gemini 3.1 Flash Live,
+    and returns low-latency 24kHz PCM audio & live transcriptions back to the browser.
     """
     await websocket.accept()
     session_id = f"ws_live_{id(websocket)}"
-    user_id = "ws_farmer"
-    active_params = {}
-    preferred_lang = "en"
+    
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        await websocket.send_json({"type": "error", "message": "GEMINI_API_KEY environment variable is not configured."})
+        await websocket.close()
+        return
 
-    # Send initial connection acknowledgment
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        await websocket.send_json({"type": "error", "message": "google-genai SDK package is missing on server."})
+        await websocket.close()
+        return
+
+    # Notify client connection is ready
     await websocket.send_json({
         "type": "connection_ack",
         "status": "CONNECTED",
         "session_id": session_id,
-        "model": MODEL_CONFIG["live_model"]
+        "model": "gemini-3.1-flash-live-preview"
     })
 
+    client = genai.Client(api_key=api_key)
+
+    system_instruction = (
+        "You are KilimoAgent, an empathetic, expert agricultural AI assistant serving smallholder farmers in East Africa. "
+        "You speak naturally, warmly, and concisely in French, Swahili, or English depending on what language the user speaks. "
+        "Your mission is to help farmers evaluate their harvested crops (maize, cassava, coffee, beans, tomatoes, etc.), "
+        "estimate harvest volumes in KG or bags, suggest nearby high-paying depots or markets for arbitrage, and assist with freight dispatch. "
+        "Keep your live spoken responses concise, friendly, and direct."
+    )
+
+    config = types.LiveConnectConfig(
+        response_modalities=[types.Modality.AUDIO],
+        system_instruction=types.Content(parts=[types.Part(text=system_instruction)]),
+        input_audio_transcription=types.AudioTranscriptionConfig(),
+        output_audio_transcription=types.AudioTranscriptionConfig()
+    )
+
     try:
-        while True:
-            data = await websocket.receive_text()
-            if not data:
-                continue
+        async with client.aio.live.connect(model="gemini-3.1-flash-live-preview", config=config) as session:
+            
+            async def forward_client_to_gemini():
+                """Reads WebSocket messages from React client and sends to Gemini Live session."""
+                try:
+                    while True:
+                        data_text = await websocket.receive_text()
+                        if not data_text:
+                            continue
+                        
+                        try:
+                            payload = json.loads(data_text)
+                        except Exception:
+                            continue
 
-            try:
-                payload = json.loads(data)
-            except Exception:
-                await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
-                continue
+                        event_type = payload.get("type", "")
 
-            event_type = payload.get("type", "text_message")
-            user_lang = payload.get("lang", preferred_lang)
-            if user_lang:
-                preferred_lang = user_lang
+                        # 1. Handle 16kHz PCM Audio Stream
+                        if event_type == "audio_pcm" or payload.get("audio_base64"):
+                            b64_audio = payload.get("audio_base64") or payload.get("data")
+                            if b64_audio:
+                                audio_bytes = base64.b64decode(b64_audio)
+                                await session.send_realtime_input(
+                                    audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+                                )
 
-            if payload.get("current_params"):
-                active_params.update(payload["current_params"])
+                        # 2. Handle JPEG Vision/Camera Frame
+                        elif event_type == "image_frame" or payload.get("image_base64"):
+                            b64_img = payload.get("image_base64") or payload.get("data")
+                            if b64_img:
+                                img_bytes = base64.b64decode(b64_img)
+                                await session.send_realtime_input(
+                                    video=types.Blob(data=img_bytes, mime_type="image/jpeg")
+                                )
 
-            audio_bytes = None
-            image_bytes = None
-            user_text = payload.get("text") or payload.get("message") or ""
+                        # 3. Handle Text Input Message
+                        elif event_type == "text_message" or payload.get("text"):
+                            user_text = payload.get("text") or payload.get("message")
+                            if user_text:
+                                await session.send_realtime_input(text=user_text)
 
-            # 1. Handle base64 audio payload
-            if event_type in ["audio_chunk", "audio_end"] or payload.get("audio_base64"):
-                b64_data = payload.get("audio_base64") or payload.get("data")
-                if b64_data:
-                    try:
-                        audio_bytes = base64.b64decode(b64_data)
-                    except Exception as e:
-                        print(f"[WS LIVE] Base64 audio decode error: {e}")
+                except WebSocketDisconnect:
+                    pass
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    print(f"[WS Forward Error]: {e}")
 
-            # 2. Handle base64 image payload
-            if event_type == "image_frame" or payload.get("image_base64"):
-                b64_img = payload.get("image_base64") or payload.get("data")
-                if b64_img:
-                    try:
-                        image_bytes = base64.b64decode(b64_img)
-                    except Exception as e:
-                        print(f"[WS LIVE] Base64 image decode error: {e}")
+            async def forward_gemini_to_client():
+                """Receives streaming events from Gemini Live session and sends to React client."""
+                try:
+                    async for response in session.receive():
+                        content = response.server_content
+                        if not content:
+                            continue
 
-            # If audio is present, run real-time audio transcription feedback first
-            if audio_bytes and len(audio_bytes) >= 100:
-                transcription_res = validate_and_transcribe_voice_note(audio_bytes, lang=preferred_lang)
-                if transcription_res.get("is_valid_speech"):
-                    transcribed_text = transcription_res.get("transcript", "")
-                    user_text = (user_text + " " + transcribed_text).strip()
-                    await websocket.send_json({
-                        "type": "speech_transcription",
-                        "text": transcribed_text,
-                        "detected_language": transcription_res.get("detected_language", preferred_lang)
-                    })
+                        # Audio response chunks (24kHz raw PCM)
+                        if content.model_turn and content.model_turn.parts:
+                            for part in content.model_turn.parts:
+                                if part.inline_data and part.inline_data.data:
+                                    pcm_b64 = base64.b64encode(part.inline_data.data).decode("utf-8")
+                                    await websocket.send_json({
+                                        "type": "audio_chunk",
+                                        "data": pcm_b64,
+                                        "mime_type": "audio/pcm;rate=24000"
+                                    })
 
-            # Process intake triage
-            res = await process_conversational_intake(
-                user_id=user_id,
-                session_id=session_id,
-                message=user_text,
-                current_params=active_params,
-                image_source=image_bytes,
-                audio_source=audio_bytes,
-                preferred_language=preferred_lang,
-                execute_on_ready=False
+                        # Input transcription (Farmer speech)
+                        if content.input_transcription and content.input_transcription.text:
+                            await websocket.send_json({
+                                "type": "input_transcription",
+                                "text": content.input_transcription.text
+                            })
+
+                        # Output transcription (Gemini speech)
+                        if content.output_transcription and content.output_transcription.text:
+                            await websocket.send_json({
+                                "type": "output_transcription",
+                                "text": content.output_transcription.text
+                            })
+
+                        # User interrupted AI speech signal
+                        if content.interrupted:
+                            await websocket.send_json({"type": "interrupted"})
+
+                        # Turn completed
+                        if content.turn_complete:
+                            await websocket.send_json({"type": "turn_complete"})
+
+                except WebSocketDisconnect:
+                    pass
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    print(f"[WS Receive Error]: {e}")
+
+            # Run both streaming tasks concurrently
+            task_fwd = asyncio.create_task(forward_client_to_gemini())
+            task_rev = asyncio.create_task(forward_gemini_to_client())
+
+            done, pending = await asyncio.wait(
+                [task_fwd, task_rev],
+                return_when=asyncio.FIRST_COMPLETED
             )
 
-            if res.get("extracted_params"):
-                active_params.update(res["extracted_params"])
-
-            # Send back structured AI response
-            await websocket.send_json({
-                "type": "ai_response",
-                "reply": res.get("reply", ""),
-                "speech_text": res.get("reply", ""),
-                "intent": res.get("intent", ""),
-                "action": res.get("action", "NORMAL"),
-                "is_terminated": bool(res.get("is_terminated", False)),
-                "detected_language": res.get("detected_language", preferred_lang),
-                "extracted_params": res.get("extracted_params", {}),
-                "missing_fields": res.get("missing_fields", []),
-                "genui_widgets": res.get("genui_widgets", []),
-                "is_ready": res.get("is_ready", False)
-            })
+            for task in pending:
+                task.cancel()
 
     except WebSocketDisconnect:
         print(f"[WS LIVE] Client disconnected: {session_id}")
     except Exception as e:
-        print(f"[WS LIVE] Connection error: {e}")
+        print(f"[WS LIVE] Live Session Error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
