@@ -12,10 +12,10 @@
 **KilimoAgent** is a cyber-physical Multi-Agent system built from the ground up on the **Google Agent Development Kit (ADK)** (`google-adk` v2.8.0) and **Gemini 3.6 Flash**. It is engineered to eliminate predatory middlemen and optimize supply chain economics for smallholder agricultural cooperatives across East and Central Africa (DRC, Kenya, Uganda, Rwanda, Tanzania).
 
 Rather than functioning as a standard single-turn chatbot, KilimoAgent is an **Agent-First platform** composed of **four coordinated autonomous agents**:
-1. 🎙️ **Conversational Receptionist & Intake Triager Agent** — Manages trilingual multi-turn dialogue (Swahili, French, English) and dynamically emits **Generative UI (GenUI)** reactive widgets directly into the chat stream.
-2. 🛡️ **Gemma 2 Model Armor Guardrail Agent** — Real-time neural safety inspector scanning for prompt injections, coercive overrides, and illicit intents (poison, violence, self-harm), with **transparent session locking and explicit reason attribution**.
-3. 🧠 **Autonomous Taskmaster Dispatch Agent (Google ADK)** — Autonomous cyber-physical executor orchestrating 7 specialized tools to conduct real-time market search grounding, corridor radar studies, OSRM geodesic road routing, EAC export compliance, multi-currency arbitrage, and SHA-256 waybill generation.
-4. ⚡ **Gemini Live Multimodal Voice & Vision Stream Agent** — Bidirectional real-time conversational agent with Bilateral Acoustic Echo Cancellation (AEC) and live 1080p camera vision inspection for grain quality grading.
+1. **Conversational Receptionist & Intake Triager Agent** — Manages trilingual multi-turn dialogue (Swahili, French, English) and dynamically emits **Generative UI (GenUI)** reactive widgets directly into the chat stream.
+2. **Gemma 2 Model Armor Guardrail Agent** — Real-time neural safety inspector scanning for prompt injections, coercive overrides, and illicit intents (poison, violence, self-harm), with **transparent session locking and explicit reason attribution**.
+3. **Autonomous Taskmaster Dispatch Agent (Google ADK)** — Autonomous cyber-physical executor orchestrating 7 specialized tools to conduct real-time market search grounding, corridor radar studies, OSRM geodesic road routing, EAC export compliance, multi-currency arbitrage, and SHA-256 waybill generation.
+4. **Gemini Live Multimodal Voice & Vision Stream Agent** — Bidirectional real-time conversational agent with Bilateral Acoustic Echo Cancellation (AEC) and live 1080p camera vision inspection for grain quality grading.
 
 ---
 
@@ -148,12 +148,12 @@ sequenceDiagram
 ```
 
 ### Available GenUI Reactive Widgets:
-* 🌽 **`GenUICropSelector`**: Interactive visual commodity catalog cards (Maize, Cassava, Arabica Coffee, Dry Beans, Tomatoes).
-* ⚖️ **`GenUIVolumeLotPicker`**: Dynamic volume slider with quick bag presets (500 kg, 1,500 kg, 2,700 kg, 5,000 kg).
-* 📍 **`GenUIDepotMapPicker`**: Interactive Leaflet map with geolocated collection depots across DRC, Kenya, Uganda, Rwanda, and Tanzania.
-* 🔍 **`GenUIPhotoQualityCard`**: In-stream computer vision quality grading card with moisture percentage meter and Grade A/B compliance badge.
-* 🎙️ **`GenUIAudioRecordCard`**: In-chat waveform voice recorder.
-* 🚀 **`GenUIDispatchConfirmation`**: Executive summary card with real-time profit estimation and 1-click autonomous execution.
+* **`GenUICropSelector`**: Interactive visual commodity catalog cards (Maize, Cassava, Arabica Coffee, Dry Beans, Tomatoes).
+* **`GenUIVolumeLotPicker`**: Dynamic volume slider with quick bag presets (500 kg, 1,500 kg, 2,700 kg, 5,000 kg).
+* **`GenUIDepotMapPicker`**: Interactive Leaflet map with geolocated collection depots across DRC, Kenya, Uganda, Rwanda, and Tanzania.
+* **`GenUIPhotoQualityCard`**: In-stream computer vision quality grading card with moisture percentage meter and Grade A/B compliance badge.
+* **`GenUIAudioRecordCard`**: In-chat waveform voice recorder.
+* **`GenUIDispatchConfirmation`**: Executive summary card with real-time profit estimation and 1-click autonomous execution.
 
 ---
 
@@ -161,12 +161,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    MIC["🎤 Microphone Capture\n(WebRTC 16kHz Mono)"] --> L1["Layer 1: WebRTC Hardware DSP\n• echoCancellation: true\n• noiseSuppression: true\n• autoGainControl: true"]
+    MIC["Microphone Capture\n(WebRTC 16kHz Mono)"] --> L1["Layer 1: WebRTC Hardware DSP\n• echoCancellation: true\n• noiseSuppression: true\n• autoGainControl: true"]
     L1 --> L2["Layer 2: Web Audio API Gain Gate Node\n• gain = 0 during Agent TTS Output\n• + 900ms Post-Speech Reverberation Cooldown"]
     L2 --> L3["Layer 3: Synchronous State Mutexing\n• Immediate recognition.abort() on TTS start\n• Drops trailing buffered speech packets"]
     L3 --> L4["Layer 4: Multi-Lingual Fuzzy Anti-Echo\n• Token Jaccard & Levenshtein matching (>35% overlap)\n• Drops phonetic loopback transcripts (FR, SW, EN)"]
     L4 --> L5["Layer 5: Semantic & Human Activity Filter\n• Discards filler noise (<3 chars, static, clicks)\n• Validates genuine agricultural intent"]
-    L5 --> CORE["🧠 KilimoAgent Multi-Agent ADK Core"]
+    L5 --> CORE["KilimoAgent Multi-Agent ADK Core"]
 ```
 
 ---
