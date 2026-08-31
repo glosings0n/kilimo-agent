@@ -9,13 +9,10 @@ AUDIO_TRANSCRIPTION_MODEL = os.getenv("GEMINI_AUDIO_MODEL", "gemini-3.6-flash")
 
 def resolve_api_model(model_name: str) -> str:
     """
-    Translates hackathon configuration model identifiers (e.g. gemini-3.6-flash)
-    to valid Vertex AI / Gemini API endpoint identifiers (gemini-2.5-flash) to prevent 404 NOT_FOUND errors.
+    Returns the configured Gemini API model identifier.
     """
     if not model_name:
-        return "gemini-2.5-flash"
-    if "3.6" in model_name:
-        return "gemini-2.5-flash"
+        return "gemini-3.6-flash"
     return model_name
 
 API_GEMINI_MODEL = resolve_api_model(DEFAULT_GEMINI_MODEL)
