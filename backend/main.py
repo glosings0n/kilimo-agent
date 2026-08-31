@@ -2,6 +2,9 @@ import os
 import shutil
 import uuid
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware

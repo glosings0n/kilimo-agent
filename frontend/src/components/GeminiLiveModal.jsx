@@ -11,10 +11,41 @@ import {
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 
+const FlagFR = () => (
+  <svg className="w-5 h-3.5 rounded-xs shadow-xs inline-block vertical-middle" viewBox="0 0 3 2">
+    <rect width="1" height="2" x="0" fill="#002395" />
+    <rect width="1" height="2" x="1" fill="#FFFFFF" />
+    <rect width="1" height="2" x="2" fill="#ED2939" />
+  </svg>
+);
+
+const FlagSW = () => (
+  <svg className="w-5 h-3.5 rounded-xs shadow-xs inline-block vertical-middle" viewBox="0 0 3 2">
+    <rect width="3" height="0.6" x="0" y="0" fill="#000000" />
+    <rect width="3" height="0.1" x="0" y="0.6" fill="#FFFFFF" />
+    <rect width="3" height="0.6" x="0" y="0.7" fill="#990000" />
+    <rect width="3" height="0.1" x="0" y="1.3" fill="#FFFFFF" />
+    <rect width="3" height="0.6" x="0" y="1.4" fill="#006600" />
+  </svg>
+);
+
+const FlagEN = () => (
+  <svg className="w-5 h-3.5 rounded-xs shadow-xs inline-block vertical-middle" viewBox="0 0 60 30">
+    <clipPath id="s_uk"><path d="M0,0 v30 h60 v-30 z"/></clipPath>
+    <clipPath id="t_uk"><path d="M30,15 L0,0 v30 z M30,15 L60,30 v-30 z M30,15 L0,30 h60 z M30,15 L60,0 h-60 z"/></clipPath>
+    <g clipPath="url(#s_uk)">
+      <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6"/>
+      <path d="M0,0 L60,30 M60,0 L0,30" stroke="#cc0000" strokeWidth="4" clipPath="url(#t_uk)"/>
+      <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10"/>
+      <path d="M30,0 v30 M0,15 h60" stroke="#cc0000" strokeWidth="6"/>
+    </g>
+  </svg>
+);
+
 const LANG_FLAGS = {
-  fr: { flag: '🇫🇷', name: 'Français' },
-  sw: { flag: '🇰🇪', name: 'Kiswahili' },
-  en: { flag: '🇬🇧', name: 'English' }
+  fr: { flag: <FlagFR />, name: 'Français' },
+  sw: { flag: <FlagSW />, name: 'Kiswahili' },
+  en: { flag: <FlagEN />, name: 'English' }
 };
 
 export default function GeminiLiveModal({

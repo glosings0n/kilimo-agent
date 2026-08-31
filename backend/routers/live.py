@@ -5,6 +5,9 @@ import asyncio
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException, Request
 from pydantic import BaseModel
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from agent import process_conversational_intake
 from tools.multimodal_grading import validate_and_transcribe_voice_note
@@ -133,12 +136,8 @@ async def live_websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     session_id = f"ws_live_{id(websocket)}"
     
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        await websocket.send_json({"type": "error", "message": "GEMINI_API_KEY environment variable is not configured."})
-        await websocket.close()
-        return
-
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    
     try:
         from google import genai
         from google.genai import types
@@ -147,6 +146,27 @@ async def live_websocket_endpoint(websocket: WebSocket):
         await websocket.close()
         return
 
+    client = None
+    if api_key:
+        try:
+            client = genai.Client(api_key=api_key)
+        except Exception as err:
+            client = None
+
+    if not client:
+        # Attempt fallback to Google Cloud Vertex AI ADC
+        try:
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "kilimoagent")
+            location = os.getenv("GEMINI_LOCATION", "us-central1")
+            client = genai.Client(vertexai=True, project=project_id, location=location)
+        except Exception as err:
+            await websocket.send_json({
+                "type": "error", 
+                "message": f"GEMINI_API_KEY environment variable is not configured on server (or missing in backend/.env). Error: {str(err)}"
+            })
+            await websocket.close()
+            return
+
     # Notify client connection is ready
     await websocket.send_json({
         "type": "connection_ack",
@@ -154,8 +174,6 @@ async def live_websocket_endpoint(websocket: WebSocket):
         "session_id": session_id,
         "model": "gemini-3.1-flash-live-preview"
     })
-
-    client = genai.Client(api_key=api_key)
 
     system_instruction = (
         "You are KilimoAgent, an empathetic, expert agricultural AI assistant serving smallholder farmers in East Africa. "
