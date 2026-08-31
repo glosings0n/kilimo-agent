@@ -259,64 +259,104 @@ flowchart TD
 
 ---
 
-## Local Setup and Execution
+## Local Setup & Quick Spin-Up Guide
+
+This project is fully reproducible. Follow the step-by-step instructions below to run KilimoAgent locally or deploy it to Google Cloud.
 
 ### 1. Prerequisites
-* Python 3.12 or higher
-* Node.js 20 or higher
-* Active Google Cloud Project with Cloud Run and Firestore APIs enabled
-* Google Cloud SDK (`gcloud`) installed and authenticated
+* **Python 3.10+** (Python 3.12 recommended)
+* **Node.js 20+** & **npm 10+**
+* **Google Cloud SDK (`gcloud`)** installed and authenticated (`gcloud auth application-default login`)
+* **Gemini API Key** from [Google AI Studio](https://aistudio.google.com/)
 
-### 2. Environment Configuration
-Clone the repository and prepare the virtual environment:
+---
+
+### 2. Backend API & Agent Spin-Up
+
+#### Step 2.1: Clone & Setup Environment
 ```bash
 git clone https://github.com/glosings0n/kilimo-agent.git
 cd kilimo-agent/backend
 
+# Create & activate Python virtual environment
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate       # On Linux/macOS
+# or: .\venv\Scripts\activate  # On Windows PowerShell
+
+# Install dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+#### Step 2.2: Configure Environment Variables
 Create a `.env` file in the `backend/` directory:
 ```env
-GOOGLE_CLOUD_PROJECT=<YOUR_GCP_PROJECT_ID>
+GOOGLE_CLOUD_PROJECT=kilimoagent
 GOOGLE_CLOUD_LOCATION=us-central1
+GEMINI_API_KEY=your_gemini_api_key_here
 ADK_MODEL=gemini-3.6-flash
-TWILIO_ACCOUNT_SID=<YOUR_TWILIO_ACCOUNT_SID>
-TWILIO_AUTH_TOKEN=<YOUR_TWILIO_AUTH_TOKEN>
-TWILIO_WHATSAPP_NUMBER=<YOUR_TWILIO_WHATSAPP_NUMBER>
+TWILIO_ACCOUNT_SID=your_twilio_account_sid_optional
+TWILIO_AUTH_TOKEN=your_twilio_auth_token_optional
+TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
 ```
 
-### 3. Running the Interactive CLI
-The interactive command-line interface allows testing multimodal inputs locally without web server overhead:
+#### Step 2.3: Run Automated Integration Tests
+Verify that all 19 system and guardrail tests pass:
 ```bash
+python test_guardrail_and_whatsapp.py
+```
+
+#### Step 2.4: Start the Backend FastAPI Server
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+*The backend API will be live at `http://localhost:8000` (OpenAPI Docs at `http://localhost:8000/docs`).*
+
+---
+
+### 3. Frontend Web Dashboard Spin-Up
+
+Open a new terminal window at the project root:
+
+```bash
+cd kilimo-agent/frontend
+
+# Install dependencies
+npm install
+
+# Start Vite Development Server
+npm run dev
+```
+*The React 19 Web Dashboard will open automatically at `http://localhost:5173`.*
+
+---
+
+### 4. Interactive Terminal CLI (Alternative Execution)
+For testing multi-agent tool execution without the Web UI:
+```bash
+cd kilimo-agent/backend
 python agent.py
-```
-
-### 4. Running the API Server
-Start the local FastAPI service:
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
 ---
 
-## Cloud Deployment
+## Cloud Deployment Guide (Google Cloud Run)
 
-### 1. Deploying Backend to Google Cloud Run
+### 1. Deploy Backend API to Cloud Run
 ```bash
-cd backend
+cd kilimo-agent/backend
+
 gcloud run deploy kilimo-backend \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GOOGLE_CLOUD_PROJECT=<YOUR_GCP_PROJECT_ID>,GOOGLE_CLOUD_LOCATION=us-central1
+  --set-env-vars GOOGLE_CLOUD_PROJECT=kilimoagent,GOOGLE_CLOUD_LOCATION=us-central1,ADK_MODEL=gemini-3.6-flash
 ```
 
-### 2. Deploying Frontend to Google Cloud Run
+### 2. Deploy Frontend Web App to Cloud Run
 ```bash
-cd frontend
+cd kilimo-agent/frontend
+
 gcloud run deploy kilimo-frontend \
   --source . \
   --region us-central1 \
