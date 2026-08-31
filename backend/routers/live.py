@@ -183,23 +183,33 @@ async def live_websocket_endpoint(websocket: WebSocket):
             output_audio_transcription=types.AudioTranscriptionConfig()
         )
 
-        model_candidates = [
-            "gemini-3.1-flash-live-preview",
-            "gemini-2.0-flash-exp",
-            "gemini-2.0-flash-realtime-exp",
-            "gemini-2.0-flash"
-        ]
+        if api_key:
+            model_candidates = [
+                "gemini-3.1-flash-live-preview",
+                "gemini-2.0-flash-exp",
+                "gemini-2.0-flash"
+            ]
+        else:
+            model_candidates = [
+                "gemini-2.0-flash-exp",
+                "gemini-2.0-flash"
+            ]
 
         session_established = False
         last_err = None
 
         for model_name in model_candidates:
             try:
-                print(f"[Gemini Live WS] Attempting connection with model candidate: '{model_name}'...")
+                print(f"[Gemini Live WS] Attempting connection with model candidate: '{model_name}' (using {'API Key' if api_key else 'Vertex AI ADC'})...")
                 async with client.aio.live.connect(model=model_name, config=config) as session:
                     session_established = True
                     print(f"[Gemini Live WS] Successfully connected session with model: '{model_name}'")
                     
+                    # Send initial greeting trigger to Gemini Live session
+                    await session.send_realtime_input(
+                        text="Bonjour KilimoAgent ! Salue chaleureusement le fermier en français et demande-lui comment tu peux l'aider avec ses récoltes."
+                    )
+
                     # Notify client of successful connection with model name
                     await websocket.send_json({
                         "type": "connection_ack",
