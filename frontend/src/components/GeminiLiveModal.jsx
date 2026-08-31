@@ -319,10 +319,110 @@ export default function GeminiLiveModal({
     }
   }, [getEffectiveBackend, liveParams, onClose, playAiResponse, selectedLang, setLang, stopAllMedia]);
 
-  const startMicrophoneAndSpeech = useCallback(() => {
-    setIsInitializing(false);
-    setConnectionStatus('listening');
+  const startMicrophoneAndSpeech = useCallback(async () => {
+    setIsInitializing(true);
+    setConnectionStatus('connecting');
 
+    // Step 1: Request microphone permission FIRST — this is mandatory
+    let micStream = null;
+    try {
+      // Check if permission was already granted
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const permResult = await navigator.permissions.query({ name: 'microphone' });
+          if (permResult.state === 'denied') {
+            setConnectionStatus('listening');
+            setIsInitializing(false);
+            setTranscripts(prev => [
+              ...prev,
+              { sender: 'gemini', text: selectedLang === 'fr' 
+                ? '⚠️ Accès au microphone refusé. Veuillez autoriser le micro dans les paramètres de votre navigateur puis réouvrez le Live.'
+                : selectedLang === 'sw'
+                ? '⚠️ Ruhusa ya maikrofoni imekataliwa. Tafadhali ruhusu maikrofoni kwenye mipangilio ya kivinjari chako.'
+                : '⚠️ Microphone access denied. Please allow microphone in your browser settings and reopen Live.', time: 'Live' }
+            ]);
+            return;
+          }
+        } catch (e) { /* permissions API not supported, proceed anyway */ }
+      }
+
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+          channelCount: 1,
+          sampleRate: 16000
+        },
+        video: false
+      });
+    } catch (micErr) {
+      console.warn("[Live Mic Permission Error]:", micErr);
+      setIsInitializing(false);
+      setConnectionStatus('listening');
+      setTranscripts(prev => [
+        ...prev,
+        { sender: 'gemini', text: selectedLang === 'fr'
+          ? '⚠️ Impossible d\'accéder au microphone. Veuillez autoriser l\'accès et réessayez.'
+          : selectedLang === 'sw'
+          ? '⚠️ Haiwezekani kupata maikrofoni. Tafadhali ruhusu ufikiaji na ujaribu tena.'
+          : '⚠️ Could not access microphone. Please grant permission and try again.', time: 'Live' }
+      ]);
+      return;
+    }
+
+    // If modal was closed during permission prompt, clean up
+    if (!isOpenRef.current) {
+      micStream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
+    // Step 2: Mic permission granted — store the stream
+    micStreamRef.current = micStream;
+
+    // Step 3: Set up audio visualizer with the mic stream
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(micStream);
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = 1.0;
+      gainNodeRef.current = gainNode;
+
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 32;
+
+      source.connect(gainNode);
+      gainNode.connect(analyser);
+
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      const updateFrequencyBars = () => {
+        if (!analyserRef.current) {
+          animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
+          return;
+        }
+
+        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+        analyserRef.current.getByteFrequencyData(dataArray);
+
+        const bars = [];
+        const step = Math.floor(dataArray.length / 10) || 1;
+        for (let i = 0; i < 10; i++) {
+          const val = dataArray[i * step] || 0;
+          const pct = Math.max(15, Math.min(100, Math.floor((val / 255) * 100) + 15));
+          bars.push(pct);
+        }
+        setAudioLevel(bars);
+        animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
+      };
+
+      updateFrequencyBars();
+    } catch (vizErr) {
+      console.warn("[Audio Visualizer Error]:", vizErr);
+    }
+
+    // Step 4: Now start SpeechRecognition (mic is already authorized)
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       try {
@@ -388,6 +488,13 @@ export default function GeminiLiveModal({
 
         recognition.onerror = (err) => {
           console.warn("[Live Speech Error]:", err.error);
+          // If 'not-allowed', the mic permission was revoked — show feedback
+          if (err.error === 'not-allowed') {
+            setTranscripts(prev => [
+              ...prev,
+              { sender: 'gemini', text: '⚠️ Microphone permission revoked. Please re-enable and reopen Live.', time: 'Live' }
+            ]);
+          }
         };
 
         recognition.onend = () => {
@@ -403,63 +510,9 @@ export default function GeminiLiveModal({
       }
     }
 
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true },
-          channelCount: 1,
-          sampleRate: 16000
-        },
-        video: false
-      }).then(stream => {
-        if (!isOpenRef.current) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-        micStreamRef.current = stream;
-
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioCtx.createMediaStreamSource(stream);
-        const gainNode = audioCtx.createGain();
-        gainNode.gain.value = 1.0;
-        gainNodeRef.current = gainNode;
-
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 32;
-
-        source.connect(gainNode);
-        gainNode.connect(analyser);
-
-        audioContextRef.current = audioCtx;
-        analyserRef.current = analyser;
-
-        const updateFrequencyBars = () => {
-          if (!analyserRef.current) {
-            animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
-            return;
-          }
-
-          const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-          analyserRef.current.getByteFrequencyData(dataArray);
-
-          const bars = [];
-          const step = Math.floor(dataArray.length / 10) || 1;
-          for (let i = 0; i < 10; i++) {
-            const val = dataArray[i * step] || 0;
-            const pct = Math.max(15, Math.min(100, Math.floor((val / 255) * 100) + 15));
-            bars.push(pct);
-          }
-          setAudioLevel(bars);
-          animationFrameRef.current = requestAnimationFrame(updateFrequencyBars);
-        };
-
-        updateFrequencyBars();
-      }).catch(micErr => {
-        console.warn("[Microphone Stream Error - Fallback to synthetic]:", micErr);
-      });
-    }
+    // Step 5: Everything initialized — switch to listening state
+    setIsInitializing(false);
+    setConnectionStatus('listening');
   }, [handleFarmerSpeech, selectedLang]);
 
   const toggleCamera = async () => {
