@@ -17,12 +17,15 @@ export default function ArchitectureModal({
     if (mode === 'cloudrun') {
       setBackendUrl('https://kilimo-backend-840262173056.us-central1.run.app');
     } else if (mode === 'localhost') {
-      setBackendUrl('http://localhost:8080');
+      setBackendUrl('http://localhost:8000');
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-xs animate-in fade-in">
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
       {/* Outer clipped container */}
       <div className="relative w-full max-w-4xl max-h-[90vh] bg-[#0F172A] border border-slate-800 rounded-3xl  overflow-hidden flex flex-col text-white">
         
@@ -95,14 +98,14 @@ export default function ArchitectureModal({
                 <div className="flex items-center justify-between">
                   <span className="font-bold flex items-center gap-1.5 text-white">
                     <Cpu className="w-3.5 h-3.5 text-blue-400" />
-                    Localhost Server (Port 8080)
+                    Localhost Server (Port 8000)
                   </span>
                   {backendUrl?.includes('localhost') && (
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
                   )}
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1">
-                  http://localhost:8080/api/v1/dispatch
+                  http://localhost:8000/api/v1/dispatch
                 </div>
               </button>
             </div>

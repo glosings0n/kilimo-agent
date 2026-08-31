@@ -397,7 +397,10 @@ export default function WhatsAppSimulatorModal({ isOpen, onClose, backendUrl, la
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xs animate-in fade-in">
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
       <div className="relative w-full max-w-lg bg-[#0F172A] border border-slate-800 rounded-3xl  overflow-hidden flex flex-col max-h-[92vh]">
         {/* Top Bar */}
         <div className="px-4 sm:px-6 py-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2">
