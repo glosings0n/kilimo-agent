@@ -146,23 +146,18 @@ export default function Sidebar({
                 className={`w-full flex items-center rounded-2xl transition cursor-pointer ${
                   isExpanded
                     ? 'bg-slate-900 hover:bg-slate-800/90 text-white px-3.5 py-3 space-x-3 border border-slate-800'
-                    : 'justify-center p-3 text-slate-300 hover:bg-slate-900 hover:text-white rounded-xl'
+                    : 'flex-col justify-center p-2 gap-0.5 text-slate-300 hover:bg-slate-900 hover:text-white rounded-xl'
                 }`}
               >
                 <SquarePen className="w-5 h-5 text-emerald-400 shrink-0" />
-                {isExpanded && (
+                {isExpanded ? (
                   <span className="text-xs font-bold tracking-wide">
                     New Dispatch
                   </span>
+                ) : (
+                  <span className="text-[8px] font-bold text-slate-500 leading-none">New</span>
                 )}
               </button>
-
-              {/* Custom Tooltip when collapsed */}
-              {!isExpanded && (
-                <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                  {lang === 'sw' ? "Usafirishaji Mpya (New Dispatch)" : lang === 'fr' ? "Nouvelle Expédition (New Dispatch)" : "New Dispatch (Reset & Start Fresh)"}
-                </span>
-              )}
             </div>
 
             {/* Input Modes (/guided-card vs /quick-prompt vs /history) */}
@@ -182,23 +177,20 @@ export default function Sidebar({
                     inputMode === 'guided'
                       ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
-                  } ${isExpanded ? 'px-3 py-2 space-x-2.5' : 'justify-center p-2.5'}`}
+                  } ${isExpanded ? 'px-3 py-2 space-x-2.5' : 'flex-col justify-center p-2 gap-0.5'}`}
                 >
                   <GeminiIcon className={`w-4 h-4 shrink-0 ${inputMode === 'guided' ? 'text-emerald-400' : 'text-slate-400'}`} />
-                  {isExpanded && (
+                  {isExpanded ? (
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold truncate">
                         {lang === 'sw' ? "Kadi za Mwongozo" : lang === 'fr' ? "Cartes Guidées" : "Guided Cards"}
                       </div>
                       <div className="text-[10px] text-emerald-400 font-mono">@kilimoagent</div>
                     </div>
+                  ) : (
+                    <span className={`text-[8px] font-bold leading-none ${inputMode === 'guided' ? 'text-emerald-400' : 'text-slate-500'}`}>Guided</span>
                   )}
                 </button>
-                {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                    {lang === 'sw' ? "Kadi za Mwongozo (@kilimoagent)" : lang === 'fr' ? "Cartes Guidées (@kilimoagent)" : "Guided Cards (@kilimoagent)"}
-                  </span>
-                )}
               </div>
 
               {/* 2. Quick Prompt */}
@@ -210,23 +202,20 @@ export default function Sidebar({
                     inputMode === 'quick'
                       ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
-                  } ${isExpanded ? 'px-3 py-2 space-x-2.5' : 'justify-center p-2.5'}`}
+                  } ${isExpanded ? 'px-3 py-2 space-x-2.5' : 'flex-col justify-center p-2 gap-0.5'}`}
                 >
                   <Zap className={`w-4 h-4 shrink-0 ${inputMode === 'quick' ? 'text-emerald-400' : 'text-slate-400'}`} />
-                  {isExpanded && (
+                  {isExpanded ? (
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold truncate">
                         {lang === 'sw' ? "Swali la Haraka" : lang === 'fr' ? "Invite Rapide" : "Quick Prompt"}
                       </div>
                       <div className="text-[10px] text-slate-400 font-mono">@kilimoagent/prompt</div>
                     </div>
+                  ) : (
+                    <span className={`text-[8px] font-bold leading-none ${inputMode === 'quick' ? 'text-emerald-400' : 'text-slate-500'}`}>Prompt</span>
                   )}
                 </button>
-                {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                    {lang === 'sw' ? "Swali la Haraka (@kilimoagent/prompt)" : lang === 'fr' ? "Invite Rapide (@kilimoagent/prompt)" : "Quick Prompt (@kilimoagent/prompt)"}
-                  </span>
-                )}
               </div>
 
               {/* 3. Farmer History & Cloud Ledger Button (3rd Option) */}
@@ -235,11 +224,11 @@ export default function Sidebar({
                   type="button"
                   onClick={handleHistoryClick}
                   className={`w-full flex items-center rounded-xl transition cursor-pointer text-left text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent ${
-                    isExpanded ? 'px-3 py-2 space-x-2.5' : 'justify-center p-2.5'
+                    isExpanded ? 'px-3 py-2 space-x-2.5' : 'flex-col justify-center p-2 gap-0.5'
                   }`}
                 >
                   <History className="w-4 h-4 shrink-0 text-cyan-400" />
-                  {isExpanded && (
+                  {isExpanded ? (
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
                         <div className="text-xs font-bold truncate text-white">
@@ -253,13 +242,10 @@ export default function Sidebar({
                         /history
                       </div>
                     </div>
+                  ) : (
+                    <span className="text-[8px] font-bold text-cyan-400/70 leading-none">History</span>
                   )}
                 </button>
-                {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                    {lang === 'sw' ? "Historia & Bili za Mkulima (/history)" : lang === 'fr' ? "Historique & Factures (/history)" : "Farmer History & Waybills (/history)"}
-                  </span>
-                )}
               </div>
             </div>
 
@@ -270,31 +256,28 @@ export default function Sidebar({
                 {lang === 'sw' ? "Zana za Wakala" : lang === 'fr' ? "Outils de l'Agent" : "Agent Capabilities"}
               </div>
             ) : (
-              <div className="relative group w-full flex justify-center py-1">
-                <Cpu className="w-4 h-4 text-slate-400" />
-                <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                  {lang === 'sw' ? "Zana za Wakala" : lang === 'fr' ? "Outils de l'Agent" : "Agent Capabilities"}
-                </span>
+              <div className="w-full flex justify-center py-1">
+                <span className="text-[7px] font-bold text-slate-500 uppercase tracking-widest">Tools</span>
               </div>
             )}
 
             <div className="space-y-1">
               {[
-                { icon: <Navigation className="w-4 h-4 text-cyan-400 shrink-0" />, title: lang === 'sw' ? "Rada ya Masoko" : lang === 'fr' ? "Radar des Marchés" : "Corridor Market Radar", desc: "Nakuru, Eldoret, Busia" },
-                { icon: <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />, title: lang === 'sw' ? "Sheria za EAC" : lang === 'fr' ? "Réglementation EAC" : "EAC/COMESA RAG", desc: "Aflatoxin & SPS Standards" },
-                { icon: <FileCheck className="w-4 h-4 text-emerald-400 shrink-0" />, title: lang === 'sw' ? "Tiketi ya Usafiri" : lang === 'fr' ? "Lettre de Voiture" : "SHA-256 Waybill", desc: "Carrier Dispatch Ledger" },
-                { icon: <MessageSquare className="w-4 h-4 text-emerald-400 shrink-0" />, title: lang === 'sw' ? "Passerelle WhatsApp" : lang === 'fr' ? "Passerelle WhatsApp" : "Twilio WhatsApp", desc: "Real-time SMS/Chat" },
+                { icon: <Navigation className="w-4 h-4 text-cyan-400 shrink-0" />, title: lang === 'sw' ? "Rada ya Masoko" : lang === 'fr' ? "Radar des Marchés" : "Corridor Market Radar", desc: "Nakuru, Eldoret, Busia", shortLabel: "Radar" },
+                { icon: <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />, title: lang === 'sw' ? "Sheria za EAC" : lang === 'fr' ? "Réglementation EAC" : "EAC/COMESA RAG", desc: "Aflatoxin & SPS Standards", shortLabel: "EAC" },
+                { icon: <FileCheck className="w-4 h-4 text-emerald-400 shrink-0" />, title: lang === 'sw' ? "Tiketi ya Usafiri" : lang === 'fr' ? "Lettre de Voiture" : "SHA-256 Waybill", desc: "Carrier Dispatch Ledger", shortLabel: "Waybill" },
+                { icon: <MessageSquare className="w-4 h-4 text-emerald-400 shrink-0" />, title: lang === 'sw' ? "Passerelle WhatsApp" : lang === 'fr' ? "Passerelle WhatsApp" : "Twilio WhatsApp", desc: "Real-time SMS/Chat", shortLabel: "WA" },
               ].map((cap, idx) => (
-                <div key={idx} className="relative group">
+                <div key={idx}>
                   <div
                     className={`w-full flex items-center rounded-xl transition text-left ${
                       isExpanded
                         ? 'px-3 py-2 space-x-2.5 bg-slate-950/60 border border-slate-800/80 text-slate-300'
-                        : 'justify-center p-2.5 text-slate-400 hover:text-white hover:bg-slate-900/80 cursor-default'
+                        : 'flex-col justify-center p-2 gap-0.5 text-slate-400 hover:text-white hover:bg-slate-900/80 cursor-default'
                     }`}
                   >
                     {cap.icon}
-                    {isExpanded && (
+                    {isExpanded ? (
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-bold text-white truncate">
                           {cap.title}
@@ -303,13 +286,10 @@ export default function Sidebar({
                           {cap.desc}
                         </div>
                       </div>
+                    ) : (
+                      <span className="text-[7px] font-bold text-slate-500 leading-none">{cap.shortLabel}</span>
                     )}
                   </div>
-                  {!isExpanded && (
-                    <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                      {cap.title} • {cap.desc}
-                    </span>
-                  )}
                 </div>
               ))}
             </div>
@@ -317,68 +297,69 @@ export default function Sidebar({
 
           {/* Language Selector */}
           <div className="pt-2 border-t border-slate-800/80">
-            {isExpanded && (
+            {isExpanded ? (
               <div className="px-2 mb-2 text-[11px] font-bold text-slate-400">
                 Language (Trilingual)
               </div>
+            ) : (
+              <div className="w-full flex justify-center py-1">
+                <span className="text-[7px] font-bold text-slate-500 uppercase tracking-widest">Lang</span>
+              </div>
             )}
 
-            <div className={`flex items-center ${isExpanded ? 'space-x-1.5 px-1' : 'flex-col space-y-1.5'}`}>
-              <div className="relative group w-full flex justify-center">
+            <div className={`flex items-center ${isExpanded ? 'space-x-1.5 px-1' : 'flex-col space-y-1'}`}>
+              <div className="w-full flex justify-center">
                 <button
                   onClick={() => setLang('en')}
                   className={`rounded-lg transition cursor-pointer flex items-center justify-center ${
-                    isExpanded ? 'px-2.5 py-1.5 space-x-1.5 w-full' : 'p-1.5'
+                    isExpanded ? 'px-2.5 py-1.5 space-x-1.5 w-full' : 'flex-col p-1.5 gap-0.5'
                   } ${
                     lang === 'en' ? 'bg-emerald-500/25 border border-emerald-500/60 shadow-xs text-white' : 'opacity-40 hover:opacity-100 hover:bg-slate-900 text-slate-400'
                   }`}
                 >
                   <UkFlag className="w-4 h-3 shrink-0" />
-                  {isExpanded && <span className="text-xs font-bold">EN</span>}
+                  {isExpanded ? (
+                    <span className="text-xs font-bold">EN</span>
+                  ) : (
+                    <span className="text-[7px] font-bold text-slate-400">EN</span>
+                  )}
                 </button>
-                {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                    English (EN)
-                  </span>
-                )}
               </div>
 
-              <div className="relative group w-full flex justify-center">
+              <div className="w-full flex justify-center">
                 <button
                   onClick={() => setLang('fr')}
                   className={`rounded-lg transition cursor-pointer flex items-center justify-center ${
-                    isExpanded ? 'px-2.5 py-1.5 space-x-1.5 w-full' : 'p-1.5'
+                    isExpanded ? 'px-2.5 py-1.5 space-x-1.5 w-full' : 'flex-col p-1.5 gap-0.5'
                   } ${
                     lang === 'fr' ? 'bg-emerald-500/25 border border-emerald-500/60 shadow-xs text-white' : 'opacity-40 hover:opacity-100 hover:bg-slate-900 text-slate-400'
                   }`}
                 >
                   <FranceFlag className="w-4 h-3 shrink-0" />
-                  {isExpanded && <span className="text-xs font-bold">FR</span>}
+                  {isExpanded ? (
+                    <span className="text-xs font-bold">FR</span>
+                  ) : (
+                    <span className="text-[7px] font-bold text-slate-400">FR</span>
+                  )}
                 </button>
-                {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                    Français (FR)
-                  </span>
-                )}
               </div>
 
-              <div className="relative group w-full flex justify-center">
+              <div className="w-full flex justify-center">
                 <button
                   onClick={() => setLang('sw')}
                   className={`rounded-lg transition cursor-pointer flex items-center justify-center ${
-                    isExpanded ? 'px-2.5 py-1.5 space-x-1.5 w-full' : 'p-1.5'
+                    isExpanded ? 'px-2.5 py-1.5 space-x-1.5 w-full' : 'flex-col p-1.5 gap-0.5'
                   } ${
                     lang === 'sw' ? 'bg-emerald-500/25 border border-emerald-500/60 shadow-xs text-white' : 'opacity-40 hover:opacity-100 hover:bg-slate-900 text-slate-400'
                   }`}
                 >
                   <TanzaniaFlag className="w-4 h-3 shrink-0" />
-                  {isExpanded && <span className="text-xs font-bold">SW</span>}
+                  {isExpanded ? (
+                    <span className="text-xs font-bold">SW</span>
+                  ) : (
+                    <span className="text-[7px] font-bold text-slate-400">SW</span>
+                  )}
                 </button>
-                {!isExpanded && (
-                  <span className="absolute left-14 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-                    Kiswahili (SW)
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -386,17 +367,16 @@ export default function Sidebar({
 
         {/* Bottom: Engineering Pipeline & Architecture Trigger */}
         <div className="p-3 border-t border-slate-800/80 bg-slate-950/90 shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] overflow-hidden">
-          <div className="relative group">
           <button
             onClick={handleOpenArchClick}
             className={`w-full flex items-center rounded-xl transition cursor-pointer ${
               isExpanded
                 ? 'bg-emerald-950/30 hover:bg-emerald-950/60 text-emerald-300 p-2.5 space-x-3 border border-emerald-500/30'
-                : 'justify-center p-2.5 text-emerald-400 hover:bg-slate-900 rounded-xl'
+                : 'flex-col justify-center p-2 gap-0.5 text-emerald-400 hover:bg-slate-900 rounded-xl'
             }`}
           >
             <Cpu className="w-5 h-5 shrink-0 text-emerald-400" />
-            {isExpanded && (
+            {isExpanded ? (
               <div className="text-left min-w-0 flex-1">
                 <div className="text-xs font-bold text-white truncate">
                   Engineering Pipeline
@@ -405,16 +385,10 @@ export default function Sidebar({
                   5-Layer Architecture
                 </div>
               </div>
+            ) : (
+              <span className="text-[7px] font-bold text-emerald-400/70 leading-none">Pipeline</span>
             )}
           </button>
-
-          {/* Custom Tooltip when collapsed */}
-          {!isExpanded && (
-            <span className="absolute left-14 bottom-0 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-2xl">
-              Engineering Pipeline • 5-Layer ADK & GenUI Architecture
-            </span>
-          )}
-        </div>
       </div>
     </aside>
   </>
