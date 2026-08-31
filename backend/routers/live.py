@@ -357,9 +357,19 @@ async def live_websocket_endpoint(websocket: WebSocket):
                     break
 
         if not session_established and last_err:
+            err_text = str(last_err)
+            if "BidiGenerateContent" in err_text or "blocked" in err_text.lower():
+                user_msg = (
+                    "L'accès WebSocket à Gemini Live (BidiGenerateContent) est bloqué par les restrictions de votre Clé API. "
+                    "Pour corriger : Allez sur Google Cloud Console (APIs & Services > Credentials), éditez votre Clé API, "
+                    "définissez 'Restrictions relatives aux API' sur 'Ne pas restreindre la clé' (Don't restrict key), puis enregistrez."
+                )
+            else:
+                user_msg = f"Impossible d'établir une session Gemini Live. Erreur: {err_text}"
+
             await websocket.send_json({
                 "type": "error",
-                "message": f"Could not establish Gemini Live session with available models. Error: {str(last_err)}"
+                "message": user_msg
             })
             await websocket.close()
 
